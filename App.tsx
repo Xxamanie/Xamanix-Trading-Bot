@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission } from './types';
+import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification } from './types';
 import { MOCK_PORTFOLIO_HISTORY, MOCK_ASSETS, MOCK_POSITIONS, MOCK_TRADE_VIEW_DATA, DEFAULT_SCRIPT } from './constants';
-import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, SunIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon } from './components/icons';
+import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, SunIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon, ExclamationTriangleIcon, BellIcon } from './components/icons';
 import RecommendationsPanel from './components/RecommendationsPanel';
 import BacktestResults from './components/BacktestResults';
 import CodeViewer from './components/CodeViewer';
@@ -527,7 +527,7 @@ const WalletView: React.FC<{ assets: Asset[], setView: (view: string) => void }>
 import { verifyAndFetchBalances } from './services/bybitService';
 import { LinkIcon } from './components/icons';
 
-const SettingsView: React.FC<{ onConnectSuccess: (assets: Asset[]) => void, onDisconnect: () => void }> = ({ onConnectSuccess, onDisconnect }) => {
+const SettingsView: React.FC<{ onConnectSuccess: (assets: Asset[]) => void, onDisconnect: () => void, addNotification: (message: string, type: Notification['type']) => void }> = ({ onConnectSuccess, onDisconnect, addNotification }) => {
     const { apiKey, setApiKey, apiSecret, setApiSecret, isConnected, setIsConnected } = useAPI();
     const [isVerifying, setIsVerifying] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -539,9 +539,12 @@ const SettingsView: React.FC<{ onConnectSuccess: (assets: Asset[]) => void, onDi
             const fetchedAssets = await verifyAndFetchBalances(apiKey, apiSecret);
             onConnectSuccess(fetchedAssets);
             setIsConnected(true);
+            addNotification("Successfully connected to exchange!", 'success');
         } catch (e: any) {
-            setError(e.message || "An unknown error occurred.");
+            const errorMessage = e.message || "An unknown error occurred.";
+            setError(errorMessage);
             setIsConnected(false);
+            addNotification(errorMessage, 'error');
         } finally {
             setIsVerifying(false);
         }
@@ -552,6 +555,7 @@ const SettingsView: React.FC<{ onConnectSuccess: (assets: Asset[]) => void, onDi
         setApiSecret('');
         setIsConnected(false);
         onDisconnect();
+        addNotification("Disconnected from exchange.", 'info');
     };
 
     return (
@@ -669,8 +673,9 @@ const StrategyView: React.FC<{ onDeployScript: (code: string) => void }> = ({ on
     };
     
     const handleDeploy = () => {
-        if (!enhancedCode) return;
-        onDeployScript(enhancedCode);
+        const codeToDeploy = enhancedCode || originalCode;
+        if (!codeToDeploy) return;
+        onDeployScript(codeToDeploy);
         setIsDeployed(true);
     };
 
@@ -715,11 +720,11 @@ const StrategyView: React.FC<{ onDeployScript: (code: string) => void }> = ({ on
                                 <SparklesIcon /> <span className="ml-2">Analyze Script</span>
                             </button>
                              <button
-                                onClick={() => onDeployScript(originalCode)}
-                                disabled={!originalCode.trim()}
+                                onClick={handleDeploy}
+                                disabled={!originalCode.trim() || isDeployed}
                                 className="w-full sm:w-auto bg-gray-700 hover:bg-gray-600 disabled:bg-gray-600/50 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center transition-colors shadow-lg"
                             >
-                                <RocketIcon /> <span className="ml-2">Deploy Strategy</span>
+                                <RocketIcon /> <span className="ml-2">{isDeployed ? 'Deployed' : 'Deploy Original Strategy'}</span>
                             </button>
                         </div>
                     </div>
@@ -926,7 +931,7 @@ const AboutView: React.FC = () => (
     </div>
 );
 
-const ContactView: React.FC<{ onFormSubmit: (submission: Omit<UserSubmission, 'id' | 'timestamp'>) => void }> = ({ onFormSubmit }) => {
+const ContactView: React.FC<{ onFormSubmit: (submission: Omit<UserSubmission, 'id' | 'timestamp' | 'read'>) => void }> = ({ onFormSubmit }) => {
     const [formState, setFormState] = useState({ name: '', email: '', subject: '', message: '' });
     const [type, setType] = useState<'comment' | 'complaint'>('comment');
     const [isSubmitted, setIsSubmitted] = useState(false);
@@ -997,57 +1002,58 @@ const ContactView: React.FC<{ onFormSubmit: (submission: Omit<UserSubmission, 'i
     );
 };
 
-const AdminView: React.FC<{ submissions: UserSubmission[] }> = ({ submissions }) => {
+const AdminView: React.FC<{ submissions: UserSubmission[], onMarkAsRead: (id: string) => void }> = ({ submissions, onMarkAsRead }) => {
     const [activeTab, setActiveTab] = useState<'complaint' | 'comment'>('complaint');
+    const [expandedId, setExpandedId] = useState<string | null>(null);
 
     const filteredSubmissions = submissions.filter(s => s.type === activeTab);
 
+    const handleToggleExpand = (id: string) => {
+        const submission = submissions.find(s => s.id === id);
+        if (submission && !submission.read) {
+            onMarkAsRead(id);
+        }
+        setExpandedId(prevId => (prevId === id ? null : id));
+    };
+
     return (
         <div className="p-6 max-w-5xl mx-auto space-y-6">
-            <Card className="p-6">
-                <h2 className="text-2xl font-bold text-white mb-4">Admin Panel: User Feedback</h2>
-                <div className="border-b border-gray-700">
-                    <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-                        {['complaint', 'comment'].map((tab) => (
-                            <button
-                                key={tab}
-                                onClick={() => setActiveTab(tab as 'complaint' | 'comment')}
-                                className={`${
-                                    activeTab === tab
-                                        ? 'border-cyan-400 text-cyan-400'
-                                        : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'
-                                } whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm capitalize`}
-                            >
-                                {tab}s ({submissions.filter(s => s.type === tab).length})
-                            </button>
-                        ))}
+            <Card>
+                 <div className="p-4 border-b border-gray-700">
+                    <h2 className="text-2xl font-bold text-white">Admin Panel</h2>
+                    <p className="text-gray-400">View user feedback and complaints.</p>
+                 </div>
+                 <div className="border-b border-gray-700">
+                    <nav className="-mb-px flex px-4" aria-label="Tabs">
+                        <button onClick={() => setActiveTab('complaint')} className={`${activeTab === 'complaint' ? 'border-cyan-400 text-cyan-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'} capitalize whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm`}>
+                            Complaints
+                        </button>
+                        <button onClick={() => setActiveTab('comment')} className={`${activeTab === 'comment' ? 'border-cyan-400 text-cyan-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'} ml-8 capitalize whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm`}>
+                            Comments
+                        </button>
                     </nav>
                 </div>
-
-                <div className="mt-6">
-                    {filteredSubmissions.length === 0 ? (
-                        <div className="text-center py-16">
-                             <p className="text-gray-500">There are currently no {activeTab}s.</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            {filteredSubmissions.map(sub => (
-                                <Card key={sub.id} className="p-4 !bg-gray-900/50">
-                                    <div className="flex justify-between items-start">
-                                        <div>
-                                            <p className="text-lg font-semibold text-white">{sub.subject}</p>
-                                            <p className="text-sm text-gray-400">
-                                                From: <a href={`mailto:${sub.email}`} className="text-cyan-400 hover:underline">{sub.name}</a>
-                                            </p>
-                                        </div>
-                                        <p className="text-xs text-gray-500 flex-shrink-0 ml-4">{new Date(sub.timestamp).toLocaleString()}</p>
-                                    </div>
-                                    <div className="mt-4 pt-4 border-t border-gray-700">
-                                        <p className="text-gray-300 whitespace-pre-wrap">{sub.message}</p>
-                                    </div>
-                                </Card>
-                            ))}
-                        </div>
+                 <div className="divide-y divide-gray-700">
+                    {filteredSubmissions.length > 0 ? filteredSubmissions.map(sub => (
+                         <div key={sub.id}>
+                            <div onClick={() => handleToggleExpand(sub.id)} className="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-800 transition-colors">
+                                <div className="flex items-center">
+                                     <div className={`w-2.5 h-2.5 rounded-full mr-4 ${!sub.read ? 'bg-cyan-400' : 'bg-transparent'}`}></div>
+                                     <div>
+                                        <p className={`font-semibold text-white ${!sub.read ? 'font-bold' : ''}`}>{sub.subject}</p>
+                                        <p className="text-sm text-gray-400">From: {sub.name} ({sub.email})</p>
+                                     </div>
+                                </div>
+                                <span className="text-xs text-gray-500">{new Date(sub.timestamp).toLocaleString()}</span>
+                            </div>
+                            {expandedId === sub.id && (
+                                <div className="p-4 bg-gray-900/50">
+                                    <p className="text-gray-300 whitespace-pre-wrap">{sub.message}</p>
+                                </div>
+                            )}
+                         </div>
+                    )) : (
+                        <p className="text-center text-gray-500 py-12">No {activeTab}s yet.</p>
                     )}
                 </div>
             </Card>
@@ -1055,472 +1061,405 @@ const AdminView: React.FC<{ submissions: UserSubmission[] }> = ({ submissions })
     );
 };
 
-
 // Main App Structure
-const NavItem: React.FC<{ icon: React.ReactNode; label: string; isActive: boolean; onClick: () => void }> = ({ icon, label, isActive, onClick }) => (
-  <button
-    onClick={onClick}
-    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${isActive ? 'bg-cyan-500/20 text-cyan-400' : 'text-gray-400 hover:bg-gray-700/50 hover:text-white'}`}
-  >
-    {icon}
-    <span className="font-semibold">{label}</span>
-  </button>
-);
-
-const Sidebar: React.FC<{ currentView: string; setView: (view: string) => void }> = ({ currentView, setView }) => (
-  <aside className="w-64 bg-gray-900/70 border-r border-gray-800 p-4 flex flex-col">
-    <div>
-        <div className="text-2xl font-bold text-white mb-10 px-2 flex items-center">
-          <ArrowTrendingUpIcon className="w-8 h-8 mr-2 text-cyan-400"/>
-          Xamanix
-        </div>
-        <nav className="space-y-2">
-          <NavItem icon={<DashboardIcon />} label="Dashboard" isActive={currentView === 'dashboard'} onClick={() => setView('dashboard')} />
-          <NavItem icon={<TradeIcon />} label="Trade" isActive={currentView === 'trade'} onClick={() => setView('trade')} />
-          <NavItem icon={<ChartBarIcon />} label="Strategy" isActive={currentView === 'strategy'} onClick={() => setView('strategy')} />
-          <NavItem icon={<HistoryIcon />} label="History" isActive={currentView === 'history'} onClick={() => setView('history')} />
-          <NavItem icon={<WalletIcon />} label="Wallet" isActive={currentView === 'wallet'} onClick={() => setView('wallet')} />
-        </nav>
-    </div>
-    <div className="mt-auto">
-        <nav className="space-y-2 border-t border-gray-700 pt-4">
-            <NavItem icon={<AboutIcon />} label="About Us" isActive={currentView === 'about'} onClick={() => setView('about')} />
-            <NavItem icon={<ContactIcon />} label="Contact Us" isActive={currentView === 'contact'} onClick={() => setView('contact')} />
-            <NavItem icon={<AdminIcon />} label="Admin Panel" isActive={currentView === 'admin'} onClick={() => setView('admin')} />
-            <NavItem icon={<SettingsIcon />} label="Settings" isActive={currentView === 'settings'} onClick={() => setView('settings')} />
-        </nav>
-    </div>
-  </aside>
-);
-
-const Header: React.FC<{ title: string; isBotRunning: boolean; onToggleBot: () => void; isDeployable: boolean; }> = ({ title, isBotRunning, onToggleBot, isDeployable }) => (
-    <header className="h-16 flex-shrink-0 bg-gray-900/70 border-b border-gray-800 flex items-center justify-between px-6">
-        <h1 className="text-xl font-bold text-white capitalize">{title}</h1>
-        <div className="flex items-center space-x-6">
-            <div className="flex items-center space-x-3 group relative">
-                <span className={`text-sm font-semibold ${isBotRunning ? 'text-green-400' : 'text-gray-500'}`}>
-                    Bot Status: {isBotRunning ? 'Running' : 'Stopped'}
-                </span>
-                <ToggleSwitch isEnabled={isBotRunning} onToggle={onToggleBot} isDisabled={!isDeployable} />
-                {!isDeployable && (
-                    <div className="absolute bottom-full mb-2 w-max bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        Deploy a strategy from the 'Strategy' view to enable the bot.
-                    </div>
-                )}
-            </div>
-            <div className="flex items-center space-x-4">
-                <button className="text-gray-400 hover:text-white"><SunIcon /></button>
-                <UserIcon className="w-8 h-8 text-gray-500" />
-            </div>
-        </div>
-    </header>
-);
-
-function AppContent() {
-  type View = 'dashboard' | 'trade' | 'wallet' | 'settings' | 'strategy' | 'history' | 'about' | 'contact' | 'admin';
-  const [view, setView] = useState<View>('dashboard');
-  const [isBotRunning, setIsBotRunning] = useState(false);
-  const [activeScript, setActiveScript] = useState<string | null>(null);
-  const [showDeploySuccess, setShowDeploySuccess] = useState(false);
-  const [showTradeNotification, setShowTradeNotification] = useState<string | null>(null);
-
-  const [portfolioHistory, setPortfolioHistory] = useState<PortfolioHistory>(MOCK_PORTFOLIO_HISTORY);
-  const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
-  const [positions, setPositions] = useState<Position[]>(MOCK_POSITIONS);
-  const [tradeViewData] = useState<TradeViewData>(MOCK_TRADE_VIEW_DATA);
-
-  const [realizedPnl, setRealizedPnl] = useState(0);
-  const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
-  const [aiSuggestion, setAiSuggestion] = useState({ suggestion: '', isLoading: false, error: null as string | null });
-  const [tradeHistory, setTradeHistory] = useState<ClosedTrade[]>([]);
-  const [userSubmissions, setUserSubmissions] = useState<UserSubmission[]>([]);
-  
-  const handleDeployScript = (code: string) => {
-    setActiveScript(code);
-    if (isBotRunning) {
-        setIsBotRunning(false);
-    }
-    setActivityLog([]);
-    setShowDeploySuccess(true);
-    setTimeout(() => setShowDeploySuccess(false), 5000);
-  };
-  
-  const handleExecuteTrade = ({ asset, direction, amountUSD }: { asset: string, direction: 'LONG' | 'SHORT', amountUSD: number }) => {
-    const usdBalance = assets.find(a => a.name === 'USD')?.available ?? 0;
-    if (amountUSD > usdBalance) {
-        setShowTradeNotification(`Error: Insufficient funds. Required: $${amountUSD.toFixed(2)}, Available: $${usdBalance.toFixed(2)}`);
-        return;
-    }
-
-    const marketFrequencies = MOCK_TRADE_VIEW_DATA[asset];
-    if (!marketFrequencies) return;
-    const frequencyData = marketFrequencies['15m']; 
-    const entryPrice = frequencyData.prices[frequencyData.prices.length - 1];
-    
-    const size = amountUSD / entryPrice;
-
-    const newPosition: Position = {
-        id: Date.now().toString(),
-        asset: asset,
-        direction: direction,
-        entryPrice: entryPrice,
-        size: parseFloat(size.toFixed(6)),
-        pnl: 0,
-        pnlPercent: 0,
-        openTimestamp: new Date().toISOString(),
-    };
-
-    setPositions(prev => [newPosition, ...prev]);
-    
-    setAssets(prevAssets => prevAssets.map(a => {
-        if (a.name === 'USD') {
-            return {
-                ...a,
-                available: a.available - amountUSD,
-                inOrders: a.inOrders + amountUSD,
-            };
-        }
-        return a;
-    }));
-    
-    setActivityLog(prev => [{
-        timestamp: new Date().toISOString(),
-        message: `Manual trade: Opened ${direction} ${asset} position worth $${amountUSD.toFixed(2)}.`,
-        type: 'trade',
-    }, ...prev]);
-    
-    const message = `${direction} order for ${size.toFixed(4)} ${asset.split('/')[0]} placed successfully.`;
-    setShowTradeNotification(message);
-    setTimeout(() => setShowTradeNotification(null), 5000);
-  };
-
-  const handleClosePosition = (positionId: string) => {
-    const positionToClose = positions.find(p => p.id === positionId);
-    if (!positionToClose) return;
-
-    const { pnl, size, entryPrice } = positionToClose;
-    const initialCapital = entryPrice * size;
-
-    // FIX: Replaced incorrect IIFE with a clear ternary operator to calculate exit price.
-    // The original IIFE syntax was invalid and caused a type error.
-    const exitPrice = positionToClose.direction === 'LONG'
-        ? entryPrice + (pnl / size)
-        : entryPrice - (pnl / size);
-
-    const newClosedTrade: ClosedTrade = {
-        id: positionToClose.id,
-        asset: positionToClose.asset,
-        direction: positionToClose.direction,
-        entryPrice: entryPrice,
-        exitPrice: exitPrice,
-        size: size,
-        pnl: pnl,
-        openTimestamp: positionToClose.openTimestamp,
-        closeTimestamp: new Date().toISOString(),
-    };
-    setTradeHistory(prev => [newClosedTrade, ...prev].sort((a,b) => new Date(b.closeTimestamp).getTime() - new Date(a.closeTimestamp).getTime()));
-
-    setAssets(prevAssets => prevAssets.map(a => {
-        if (a.name !== 'USD') return a;
-        const updatedAsset = { ...a, inOrders: a.inOrders - initialCapital };
-        if (pnl < 0) { // Loss from capital
-            updatedAsset.available += initialCapital + pnl;
-            updatedAsset.total += pnl;
-        } else { // Profit segregated
-            updatedAsset.available += initialCapital;
-        }
-        return updatedAsset;
-    }));
-
-    if (pnl >= 0) {
-      setRealizedPnl(prev => prev + pnl);
-    }
-    
-    setPortfolioHistory(prev => {
-        const newEquityValue = (prev.equity[prev.equity.length - 1] ?? 0) + pnl;
-        const newEquity = [...prev.equity, newEquityValue].slice(-30);
-        const newTimestamps = [...prev.timestamps, new Date().toISOString()].slice(-30);
-        return { equity: newEquity, timestamps: newTimestamps };
-    });
-
-    setActivityLog(prev => [{
-        timestamp: new Date().toISOString(),
-        message: `Manually closed ${positionToClose.asset} for a ${pnl >= 0 ? 'profit' : 'loss'} of $${pnl.toFixed(2)}.`,
-        type: pnl >= 0 ? 'profit' : 'loss'
-    }, ...prev]);
-
-    setPositions(prev => prev.filter(p => p.id !== positionId));
-    
-    setShowTradeNotification(`Closed ${positionToClose.asset} position. PnL: $${pnl.toFixed(2)}.`);
-    setTimeout(() => setShowTradeNotification(null), 5000);
-  };
-  
-  const handleWithdrawProfits = () => {
-    if (realizedPnl <= 0) return;
-    const withdrawnAmount = realizedPnl;
-    
-    setAssets(prevAssets => prevAssets.map(asset => {
-        if (asset.name === 'USD') {
-            return {
-                ...asset,
-                total: asset.total + withdrawnAmount,
-                available: asset.available + withdrawnAmount,
-            };
-        }
-        return asset;
-    }));
-    
-    setRealizedPnl(0);
-
-    setShowTradeNotification(`Successfully withdrew $${withdrawnAmount.toFixed(2)} to main capital account.`);
-    setTimeout(() => setShowTradeNotification(null), 5000);
-    
-    setActivityLog(prev => [{
-      timestamp: new Date().toISOString(),
-      message: `Withdrew $${withdrawnAmount.toFixed(2)} in profits to main capital.`,
-      type: 'info',
-    }, ...prev]);
-  };
-
-  const handleGetSuggestion = async () => {
-    setAiSuggestion({ suggestion: '', isLoading: true, error: null });
-    try {
-        const context = `
-            Current Segregated PnL: $${realizedPnl.toFixed(2)}.
-            Open Positions: ${positions.length}.
-            Recent Activity: ${activityLog.slice(-3).map(l => l.message).join('; ')}
-        `;
-        const suggestion = await getTradingSuggestion(context);
-        setAiSuggestion({ suggestion, isLoading: false, error: null });
-    } catch (error: any) {
-        setAiSuggestion({ suggestion: '', isLoading: false, error: 'Failed to get suggestion from AI.' });
-        console.error(error);
-    }
-  };
-
-  const handleContactSubmit = (submission: Omit<UserSubmission, 'id' | 'timestamp'>) => {
-    const newSubmission: UserSubmission = {
-      ...submission,
-      id: Date.now().toString(),
-      timestamp: new Date().toISOString(),
-    };
-    setUserSubmissions(prev => [newSubmission, ...prev]);
-  };
-
-  useEffect(() => {
-    const logEntry = activityLog.length > 0 ? activityLog[0].message : '';
-    if (isBotRunning && activeScript && !logEntry.startsWith('AI Strategy started')) {
-        setActivityLog(prev => [{
-            timestamp: new Date().toISOString(),
-            message: 'AI Strategy started.',
-            type: 'info',
-        }, ...prev]);
-    } else if (!isBotRunning && activeScript && activityLog.length > 0 && !logEntry.startsWith('AI Strategy stopped')) {
-        setActivityLog(prev => [{
-            timestamp: new Date().toISOString(),
-            message: 'AI Strategy stopped.',
-            type: 'info',
-        }, ...prev]);
-    }
-  }, [isBotRunning, activeScript]);
-
-
-  useEffect(() => {
-      let simulationInterval: number | undefined;
-      if (isBotRunning && activeScript) {
-          simulationInterval = window.setInterval(() => {
-              // Part 1: Update PnL on all open positions
-              setPositions(prevPositions => prevPositions.map(pos => {
-                  const priceChange = (Math.random() - 0.49) * 0.01;
-                  const pnlChange = pos.size * pos.entryPrice * priceChange;
-                  const newPnl = pos.pnl + pnlChange;
-                  return { ...pos, pnl: newPnl, pnlPercent: (newPnl / (pos.size * pos.entryPrice)) * 100 };
-              }));
-
-              // Part 2: Decide actions (close, open) based on current state
-              const shouldClose = Math.random() > 0.85 && positions.length > 0;
-              const shouldOpen = !shouldClose && Math.random() > 0.6 && positions.length < 5;
-              
-              // Action: Close a position
-              if (shouldClose) {
-                  const closedIndex = Math.floor(Math.random() * positions.length);
-                  const closedPosition = positions[closedIndex];
-                  const pnl = closedPosition.pnl;
-                  const initialCapital = closedPosition.entryPrice * closedPosition.size;
-                  
-                  let exitPrice = 0;
-                  if (closedPosition.direction === 'LONG') {
-                      exitPrice = closedPosition.entryPrice + (pnl / closedPosition.size);
-                  } else { // SHORT
-                      exitPrice = closedPosition.entryPrice - (pnl / closedPosition.size);
-                  }
-
-                  const newClosedTrade: ClosedTrade = {
-                      id: closedPosition.id,
-                      asset: closedPosition.asset,
-                      direction: closedPosition.direction,
-                      entryPrice: closedPosition.entryPrice,
-                      exitPrice: exitPrice,
-                      size: closedPosition.size,
-                      pnl: pnl,
-                      openTimestamp: closedPosition.openTimestamp,
-                      closeTimestamp: new Date().toISOString(),
-                  };
-                  setTradeHistory(prev => [newClosedTrade, ...prev].sort((a,b) => new Date(b.closeTimestamp).getTime() - new Date(a.closeTimestamp).getTime()));
-
-                  setAssets(prevAssets => prevAssets.map(a => {
-                      if (a.name !== 'USD') return a;
-                      const newAsset = { ...a, inOrders: a.inOrders - initialCapital };
-                      if (pnl < 0) { // Loss comes from capital
-                          newAsset.available += (initialCapital + pnl);
-                          newAsset.total += pnl;
-                      } else { // Profit is segregated
-                          newAsset.available += initialCapital; // Only return initial capital
-                      }
-                      return newAsset;
-                  }));
-
-                  if (pnl >= 0) { // Add profit to segregated PnL pool
-                      setRealizedPnl(prev => prev + pnl);
-                  }
-
-                  setPortfolioHistory(prev => {
-                      const newEquityValue = (prev.equity[prev.equity.length - 1] ?? 0) + pnl;
-                      const newEquity = [...prev.equity, newEquityValue].slice(-30);
-                      const newTimestamps = [...prev.timestamps, new Date().toISOString()].slice(-30);
-                      return { equity: newEquity, timestamps: newTimestamps };
-                  });
-                  
-                  setActivityLog(prev => [{
-                      timestamp: new Date().toISOString(),
-                      message: `AI closed ${closedPosition.asset} for a ${pnl >= 0 ? 'profit' : 'loss'} of $${pnl.toFixed(2)}.`,
-                      type: pnl >= 0 ? 'profit' : 'loss'
-                  }, ...prev]);
-
-                  setPositions(prev => prev.filter(p => p.id !== closedPosition.id));
-              }
-
-              // Action: Open a new position
-              if (shouldOpen) {
-                  const usdBalance = assets.find(a => a.name === 'USD')?.available ?? 0;
-                  const TRADE_SIZE_USD = 500;
-                  
-                  if (usdBalance >= TRADE_SIZE_USD) {
-                      const assetsList = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'NGN/USD'];
-                      const asset = assetsList[Math.floor(Math.random() * assetsList.length)];
-                      const direction = Math.random() > 0.5 ? 'LONG' : 'SHORT';
-                      const entryPrice = MOCK_TRADE_VIEW_DATA[asset]['15m'].prices[0] * (1 + (Math.random() - 0.5) * 0.001);
-                      const size = TRADE_SIZE_USD / entryPrice;
-
-                      const newPosition: Position = {
-                          id: Date.now().toString(), asset, direction, entryPrice, size, pnl: 0, pnlPercent: 0, openTimestamp: new Date().toISOString(),
-                      };
-
-                      setAssets(prevAssets => prevAssets.map(a => 
-                          a.name === 'USD' ? { ...a, available: a.available - TRADE_SIZE_USD, inOrders: a.inOrders + TRADE_SIZE_USD } : a
-                      ));
-
-                      setActivityLog(prev => [{
-                          timestamp: new Date().toISOString(),
-                          message: `AI opened new ${direction} position for ${asset} ($${TRADE_SIZE_USD}).`,
-                          type: 'trade'
-                      }, ...prev]);
-                      
-                      setPositions(prev => [...prev, newPosition]);
-                  } else {
-                      setActivityLog(prev => {
-                          if (prev.length > 0 && prev[0].message.startsWith('Insufficient capital')) return prev;
-                          return [{
-                              timestamp: new Date().toISOString(),
-                              message: `Insufficient capital. Required: $${TRADE_SIZE_USD}, Available: $${usdBalance.toFixed(2)}.`,
-                              type: 'info'
-                          }, ...prev];
-                      });
-                  }
-              }
-
-          }, 3000);
-      }
-      return () => clearInterval(simulationInterval);
-  }, [isBotRunning, activeScript, assets, positions]);
-
-
-  const renderView = () => {
-    const isDeployable = !!activeScript;
-    const handleToggleBot = () => {
-        if(isDeployable) setIsBotRunning(prev => !prev);
-    };
-
-    switch (view) {
-      case 'dashboard': return <DashboardView history={portfolioHistory} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleClosePosition} />;
-      case 'trade': return <TradeView 
-                            data={tradeViewData} 
-                            onExecuteTrade={handleExecuteTrade} 
-                            isBotRunning={isBotRunning}
-                            onToggleBot={handleToggleBot}
-                            isDeployable={isDeployable}
-                            realizedPnl={realizedPnl}
-                            activityLog={activityLog}
-                            onWithdrawProfits={handleWithdrawProfits}
-                            onGetSuggestion={handleGetSuggestion}
-                            aiSuggestion={aiSuggestion}
-                          />;
-      case 'wallet': return <WalletView assets={assets} setView={setView as (view:string) => void} />;
-      case 'settings': return <SettingsView onConnectSuccess={setAssets} onDisconnect={() => setAssets(MOCK_ASSETS)} />;
-      case 'strategy': return <StrategyView onDeployScript={handleDeployScript} />;
-      case 'history': return <HistoryView trades={tradeHistory} positions={positions} />;
-      case 'about': return <AboutView />;
-      case 'contact': return <ContactView onFormSubmit={handleContactSubmit} />;
-      case 'admin': return <AdminView submissions={userSubmissions} />;
-      default: return <DashboardView history={portfolioHistory} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleClosePosition} />;
-    }
-  };
-
-  return (
-    <div className="flex h-screen bg-gray-900 text-gray-200">
-      <Sidebar currentView={view} setView={setView as (view: string) => void} />
-      <div className="flex-1 flex flex-col relative">
-        <Header 
-            title={view} 
-            isBotRunning={isBotRunning} 
-            onToggleBot={() => {
-                if(activeScript) setIsBotRunning(prev => !prev)
-            }}
-            isDeployable={!!activeScript}
-        />
-        <main className="flex-1 overflow-y-auto">
-          {renderView()}
-        </main>
-        {showDeploySuccess && (
-            <div className="absolute top-20 right-6 bg-green-600/90 backdrop-blur-sm border border-green-500 text-white p-4 rounded-lg shadow-2xl flex items-start z-50 animate-fade-in-down">
-                <CheckCircleIcon className="w-6 h-6 mr-3 mt-1 flex-shrink-0" />
-                <div>
-                    <p className="font-bold">Strategy Deployed!</p>
-                    <p className="text-sm text-green-100">You can now enable the bot in the Trade view or header.</p>
-                </div>
-                <button onClick={() => setShowDeploySuccess(false)} className="ml-4 -mt-2 -mr-2 p-1 rounded-full hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-white">
-                    <CloseIcon className="w-5 h-5" />
-                </button>
-            </div>
-        )}
-         {showTradeNotification && (
-            <div className="absolute top-20 right-6 bg-cyan-600/90 backdrop-blur-sm border border-cyan-500 text-white p-4 rounded-lg shadow-2xl flex items-start z-50 animate-fade-in-down">
-                <InfoIcon className="w-6 h-6 mr-3 mt-1 flex-shrink-0" />
-                <div>
-                    <p className="font-bold">Notification</p>
-                    <p className="text-sm text-cyan-100">{showTradeNotification}</p>
-                </div>
-                <button onClick={() => setShowTradeNotification(null)} className="ml-4 -mt-2 -mr-2 p-1 rounded-full hover:bg-cyan-700 focus:outline-none focus:ring-2 focus:ring-white">
-                    <CloseIcon className="w-5 h-5" />
-                </button>
-            </div>
-        )}
-      </div>
-    </div>
-  );
+// FIX: Define a type for navigation items to ensure type safety for items with and without badges.
+interface NavItemData {
+    id: string;
+    label: string;
+    icon: React.ReactElement;
+    badge?: number;
 }
 
-export default function App(): React.ReactElement {
+const NavItem: React.FC<{
+    icon: React.ReactElement;
+    label: string;
+    isActive: boolean;
+    onClick: () => void;
+    badge?: number;
+}> = ({ icon, label, isActive, onClick, badge }) => (
+    <button
+        onClick={onClick}
+        className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors relative ${isActive ? 'bg-cyan-500/20 text-cyan-300' : 'text-gray-400 hover:bg-gray-700/50 hover:text-white'}`}
+    >
+        {icon}
+        <span className="font-semibold">{label}</span>
+        {badge && badge > 0 ? (
+            <span className="absolute top-1.5 right-1.5 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                {badge}
+            </span>
+        ) : null}
+    </button>
+);
+
+
+const Sidebar: React.FC<{
+    currentView: string;
+    setView: (view: string) => void;
+    isAdminVisible: boolean;
+    onTitleClick: () => void;
+    positionsCount: number;
+    unreadSubmissionsCount: number;
+}> = ({ currentView, setView, isAdminVisible, onTitleClick, positionsCount, unreadSubmissionsCount }) => {
+
+    const navItems: NavItemData[] = [
+        { id: 'dashboard', label: 'Dashboard', icon: <DashboardIcon />, badge: positionsCount },
+        { id: 'trade', label: 'Trade', icon: <TradeIcon /> },
+        { id: 'strategy', label: 'Strategy', icon: <ArrowTrendingUpIcon /> },
+        { id: 'history', label: 'History', icon: <HistoryIcon /> },
+        { id: 'wallet', label: 'Wallet', icon: <WalletIcon /> },
+    ];
+
+    const secondaryNavItems: NavItemData[] = [
+        { id: 'settings', label: 'Settings', icon: <SettingsIcon /> },
+        { id: 'about', label: 'About', icon: <AboutIcon /> },
+        { id: 'contact', label: 'Contact Us', icon: <ContactIcon /> },
+    ];
+    
+     if (isAdminVisible) {
+        secondaryNavItems.push({ id: 'admin', label: 'Admin Panel', icon: <AdminIcon />, badge: unreadSubmissionsCount });
+    }
+
+    return (
+        <div className="w-64 bg-gray-900/80 border-r border-gray-700/50 p-4 flex flex-col">
+            <div className="flex items-center space-x-2 mb-8 px-2 cursor-pointer" onClick={onTitleClick}>
+                <ChartBarIcon className="h-8 w-8 text-cyan-400" />
+                <h1 className="text-2xl font-bold text-white">Xamanix</h1>
+            </div>
+            <nav className="space-y-2 flex-grow">
+                {navItems.map(item => (
+                    <NavItem
+                        key={item.id}
+                        icon={item.icon}
+                        label={item.label}
+                        isActive={currentView === item.id}
+                        onClick={() => setView(item.id)}
+                        badge={item.badge}
+                    />
+                ))}
+            </nav>
+            <div className="space-y-2 border-t border-gray-700 pt-4">
+                 {secondaryNavItems.map(item => (
+                    <NavItem
+                        key={item.id}
+                        icon={item.icon}
+                        label={item.label}
+                        isActive={currentView === item.id}
+                        onClick={() => setView(item.id)}
+                        // FIX: Removed @ts-ignore as the type is now correct.
+                        badge={item.badge}
+                    />
+                ))}
+            </div>
+        </div>
+    );
+};
+
+const StatusIndicator: React.FC<{ label: string; status: 'positive' | 'neutral' | 'negative'; text: string; }> = ({ label, status, text }) => {
+    const colorClasses = {
+        positive: 'bg-green-500',
+        neutral: 'bg-gray-500',
+        negative: 'bg-red-500',
+    };
+    return (
+        <div className="flex items-center space-x-2">
+            <span className="text-sm text-gray-400">{label}:</span>
+            <div className="flex items-center space-x-1.5">
+                <div className={`w-2 h-2 rounded-full ${colorClasses[status]}`}></div>
+                <span className="text-sm font-semibold text-white">{text}</span>
+            </div>
+        </div>
+    );
+};
+
+const DashboardHeader: React.FC<{
+    currentView: string;
+    isBotRunning: boolean;
+    isDeployable: boolean;
+    isConnected: boolean;
+}> = ({ currentView, isBotRunning, isDeployable, isConnected }) => {
+    const title = currentView.charAt(0).toUpperCase() + currentView.slice(1);
+
+    const botStatus = isDeployable ? (isBotRunning ? 'Active' : 'Idle') : 'Not Deployed';
+    const botStatusColor = isDeployable ? (isBotRunning ? 'positive' : 'neutral') : 'negative';
+    
+    return (
+        <div className="h-16 flex-shrink-0 bg-gray-800/30 border-b border-gray-700 flex items-center justify-between px-6">
+            <h2 className="text-xl font-bold text-white">{title}</h2>
+            <div className="flex items-center space-x-6">
+                <StatusIndicator 
+                    label="AI Bot"
+                    status={botStatusColor}
+                    text={botStatus}
+                />
+                <StatusIndicator 
+                    label="Exchange"
+                    status={isConnected ? 'positive' : 'negative'}
+                    text={isConnected ? 'Connected' : 'Disconnected'}
+                />
+            </div>
+        </div>
+    );
+};
+
+const NotificationToast: React.FC<{ notification: Notification; onDismiss: () => void }> = ({ notification, onDismiss }) => {
+    const typeClasses = {
+        success: 'bg-green-800/80 border-green-600',
+        error: 'bg-red-800/80 border-red-600',
+        info: 'bg-blue-800/80 border-blue-600',
+    };
+
+    useEffect(() => {
+        const timer = setTimeout(onDismiss, 5000);
+        return () => clearTimeout(timer);
+    }, [onDismiss]);
+
+    return (
+        <div className={`w-80 rounded-lg shadow-2xl p-4 border text-white backdrop-blur-md ${typeClasses[notification.type]}`}>
+            <div className="flex items-start">
+                <div className="flex-shrink-0">{notification.icon}</div>
+                <div className="ml-3 w-0 flex-1">
+                    <p className="text-sm font-medium">{notification.message}</p>
+                </div>
+                <div className="ml-4 flex-shrink-0 flex">
+                    <button onClick={onDismiss} className="inline-flex text-gray-300 hover:text-white">
+                        <CloseIcon className="h-5 w-5" />
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const NotificationContainer: React.FC<{ notifications: Notification[]; onDismiss: (id: number) => void }> = ({ notifications, onDismiss }) => (
+    <div className="fixed top-4 right-4 z-50 space-y-3">
+        {notifications.map(n => (
+            <NotificationToast key={n.id} notification={n} onDismiss={() => onDismiss(n.id)} />
+        ))}
+    </div>
+);
+
+
+function AppContent() {
+    const [view, setView] = useState('dashboard');
+    const [positions, setPositions] = useState<Position[]>(MOCK_POSITIONS);
+    const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
+    const [isBotRunning, setIsBotRunning] = useState(false);
+    const [isDeployable, setIsDeployable] = useState(false);
+    const [realizedPnl, setRealizedPnl] = useState(124.50);
+    const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
+    const [closedTrades, setClosedTrades] = useState<ClosedTrade[]>([]);
+    const [submissions, setSubmissions] = useState<UserSubmission[]>([]);
+    const [isAdminVisible, setIsAdminVisible] = useState(false);
+    const [titleClickCount, setTitleClickCount] = useState(0);
+    const titleClickTimer = useRef<number | null>(null);
+    const [notifications, setNotifications] = useState<Notification[]>([]);
+    const { isConnected, setIsConnected } = useAPI();
+    const [aiSuggestion, setAiSuggestion] = useState({ suggestion: '', isLoading: false, error: null as string | null });
+
+    const getIconForType = (type: Notification['type']): React.ReactElement => {
+        switch (type) {
+            case 'success': return <CheckCircleIcon className="w-6 h-6 text-green-400" />;
+            case 'error': return <ExclamationTriangleIcon className="w-6 h-6 text-red-400" />;
+            case 'info':
+            default: return <BellIcon className="w-6 h-6 text-blue-400" />;
+        }
+    };
+
+    const addNotification = (message: string, type: Notification['type'] = 'info') => {
+        const id = Date.now();
+        const icon = getIconForType(type);
+        setNotifications(prev => [...prev, { id, message, type, icon }]);
+    };
+    
+    const removeNotification = (id: number) => {
+        setNotifications(prev => prev.filter(n => n.id !== id));
+    };
+
+    const logActivity = (message: string, type: ActivityLogEntry['type']) => {
+        setActivityLog(prev => [...prev, { timestamp: new Date().toISOString(), message, type }]);
+    };
+    
+    const handleDeployScript = (code: string) => {
+        setIsDeployable(true);
+        logActivity(`New strategy deployed. Bot is now ready.`, 'info');
+        addNotification("Strategy deployed! Bot is now ready to be activated.", 'success');
+    };
+
+    const handleToggleBot = () => {
+        setIsBotRunning(!isBotRunning);
+        logActivity(`AI Strategy ${!isBotRunning ? 'activated' : 'deactivated'}.`, 'info');
+    };
+
+    const handleConnectSuccess = (fetchedAssets: Asset[]) => {
+        setAssets(fetchedAssets);
+    };
+    
+    const handleDisconnect = () => {
+        setAssets(MOCK_ASSETS); // Revert to mock assets on disconnect
+        setIsConnected(false);
+    };
+    
+    const handleExecuteTrade = (details: { asset: string; direction: 'LONG' | 'SHORT'; amountUSD: number; }) => {
+        const newPosition: Position = {
+            id: `pos-${Date.now()}`,
+            asset: details.asset,
+            direction: details.direction,
+            entryPrice: MOCK_TRADE_VIEW_DATA[details.asset]['15m'].prices.slice(-1)[0],
+            size: details.amountUSD / MOCK_TRADE_VIEW_DATA[details.asset]['15m'].prices.slice(-1)[0],
+            pnl: 0,
+            pnlPercent: 0,
+            openTimestamp: new Date().toISOString(),
+        };
+        setPositions(prev => [...prev, newPosition]);
+        logActivity(`Manual trade executed: ${details.direction} ${newPosition.size.toFixed(4)} ${details.asset}.`, 'trade');
+        addNotification(`Trade executed: ${details.direction} ${details.asset}`, 'success');
+    };
+    
+    const handleManualClosePosition = (positionId: string) => {
+        const posToClose = positions.find(p => p.id === positionId);
+        if (!posToClose) return;
+
+        const exitPrice = MOCK_TRADE_VIEW_DATA[posToClose.asset]['15m'].prices.slice(-1)[0] * (1 + (Math.random() - 0.5) * 0.002);
+        const pnl = (exitPrice - posToClose.entryPrice) * posToClose.size * (posToClose.direction === 'LONG' ? 1 : -1);
+        
+        const newClosedTrade: ClosedTrade = {
+            id: `trade-${Date.now()}`,
+            asset: posToClose.asset,
+            direction: posToClose.direction,
+            entryPrice: posToClose.entryPrice,
+            exitPrice: exitPrice,
+            size: posToClose.size,
+            pnl: pnl,
+            openTimestamp: posToClose.openTimestamp,
+            closeTimestamp: new Date().toISOString()
+        };
+        
+        setClosedTrades(prev => [...prev, newClosedTrade]);
+        setPositions(prev => prev.filter(p => p.id !== positionId));
+        setRealizedPnl(prev => prev + pnl);
+        logActivity(`Position closed for ${posToClose.asset}. PnL: $${pnl.toFixed(2)}.`, pnl >= 0 ? 'profit' : 'loss');
+        addNotification(`Closed ${posToClose.asset} position for $${pnl.toFixed(2)} PnL.`, 'info');
+    };
+    
+    const handleWithdrawProfits = () => {
+        addNotification(`$${realizedPnl.toFixed(2)} profits withdrawn.`, 'success');
+        setRealizedPnl(0);
+        logActivity('Profits withdrawn to main capital.', 'info');
+    };
+    
+    const handleFormSubmit = (submission: Omit<UserSubmission, 'id' | 'timestamp' | 'read'>) => {
+        const newSubmission: UserSubmission = {
+            ...submission,
+            id: `sub-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            read: false,
+        };
+        setSubmissions(prev => [...prev, newSubmission]);
+        addNotification("Your message has been sent!", 'success');
+    };
+    
+    const handleMarkSubmissionAsRead = (id: string) => {
+        setSubmissions(submissions.map(s => s.id === id ? { ...s, read: true } : s));
+    };
+
+    const unreadSubmissionsCount = submissions.filter(s => !s.read && s.type === 'complaint').length;
+
+    const handleTitleClick = () => {
+        if (titleClickTimer.current) {
+            clearTimeout(titleClickTimer.current);
+        }
+
+        const newCount = titleClickCount + 1;
+        setTitleClickCount(newCount);
+
+        if (newCount === 5) {
+            setIsAdminVisible(!isAdminVisible);
+            setTitleClickCount(0);
+            addNotification(`Admin mode ${!isAdminVisible ? 'enabled' : 'disabled'}.`, 'info');
+        }
+
+        titleClickTimer.current = window.setTimeout(() => {
+            setTitleClickCount(0);
+        }, 1000); // Reset after 1 second
+    };
+
+    useEffect(() => {
+        if (isAdminVisible && view === 'admin' && submissions.filter(s => !s.read).length > 0) {
+           // Maybe mark all as read when view is opened? For now, manual.
+        }
+    }, [view, isAdminVisible, submissions]);
+    
+    // Admin View Security
+    if (view === 'admin' && !isAdminVisible) {
+        setView('dashboard');
+        return null;
+    }
+    
+     const getTradingSuggestionHandler = async () => {
+        setAiSuggestion({ suggestion: '', isLoading: true, error: null });
+        try {
+            const context = `Current PnL: $${realizedPnl.toFixed(2)}. Open Positions: ${positions.length}. Bot Status: ${isBotRunning ? 'Active' : 'Idle'}`;
+            const suggestion = await getTradingSuggestion(context);
+            setAiSuggestion({ suggestion, isLoading: false, error: null });
+        } catch (e: any) {
+            setAiSuggestion({ suggestion: '', isLoading: false, error: "Couldn't get a suggestion right now." });
+             addNotification("Failed to get AI suggestion.", 'error');
+        }
+    };
+
+
+    const renderView = () => {
+        switch (view) {
+            case 'dashboard':
+                return <DashboardView history={MOCK_PORTFOLIO_HISTORY} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleManualClosePosition} />;
+            case 'trade':
+                return <TradeView data={MOCK_TRADE_VIEW_DATA} onExecuteTrade={handleExecuteTrade} isBotRunning={isBotRunning} onToggleBot={handleToggleBot} isDeployable={isDeployable} realizedPnl={realizedPnl} activityLog={activityLog} onWithdrawProfits={handleWithdrawProfits} onGetSuggestion={getTradingSuggestionHandler} aiSuggestion={aiSuggestion} />;
+            case 'wallet':
+                return <WalletView assets={assets} setView={setView} />;
+            case 'settings':
+                return <SettingsView onConnectSuccess={handleConnectSuccess} onDisconnect={handleDisconnect} addNotification={addNotification} />;
+            case 'strategy':
+                return <StrategyView onDeployScript={handleDeployScript} />;
+            case 'history':
+                return <HistoryView trades={closedTrades} positions={positions} />;
+            case 'about':
+                return <AboutView />;
+            case 'contact':
+                return <ContactView onFormSubmit={handleFormSubmit} />;
+            case 'admin':
+                return isAdminVisible ? <AdminView submissions={submissions} onMarkAsRead={handleMarkSubmissionAsRead} /> : null;
+            default:
+                return <div>Not Found</div>;
+        }
+    };
+
+    return (
+        <div className="flex h-screen bg-gray-900 text-gray-100">
+            <NotificationContainer notifications={notifications} onDismiss={removeNotification} />
+            <Sidebar 
+                currentView={view} 
+                setView={setView} 
+                isAdminVisible={isAdminVisible} 
+                onTitleClick={handleTitleClick}
+                positionsCount={positions.length}
+                unreadSubmissionsCount={unreadSubmissionsCount}
+            />
+            <main className="flex-1 flex flex-col overflow-hidden">
+                <DashboardHeader
+                    currentView={view}
+                    isBotRunning={isBotRunning}
+                    isDeployable={isDeployable}
+                    isConnected={isConnected}
+                />
+                <div className="flex-1 overflow-y-auto bg-black/20">
+                    {renderView()}
+                </div>
+            </main>
+        </div>
+    );
+}
+
+export default function App() {
     return (
         <APIProvider>
             <AppContent />

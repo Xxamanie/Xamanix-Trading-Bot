@@ -1,3 +1,5 @@
+// FIX: Import React to make the React namespace available for types like React.ReactElement.
+import React from 'react';
 
 export interface Asset {
   name: string;
@@ -92,4 +94,12 @@ export interface UserSubmission {
   subject: string;
   message: string;
   timestamp: string;
+  read: boolean;
+}
+
+export interface Notification {
+  id: number;
+  message: string;
+  type: 'success' | 'error' | 'info';
+  icon: React.ReactElement;
 }
