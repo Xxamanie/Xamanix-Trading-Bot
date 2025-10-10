@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification } from './types';
 import { MOCK_PORTFOLIO_HISTORY, MOCK_ASSETS, MOCK_POSITIONS, MOCK_TRADE_VIEW_DATA, DEFAULT_SCRIPT } from './constants';
@@ -8,6 +7,9 @@ import BacktestResults from './components/BacktestResults';
 import CodeViewer from './components/CodeViewer';
 import { analyzeCode, runBacktest, generateEnhancedCode, getTradingSuggestion } from './services/geminiService';
 import { APIProvider, useAPI } from './contexts/APIContext';
+import { verifyAndFetchBalances, transferFunds, clearSessionBalances, executeLiveTrade, closeLivePosition } from './services/bybitService';
+import { LinkIcon } from './components/icons';
+
 
 // @ts-ignore - Chart is loaded from a script tag in index.html
 const Chart = window.Chart;
@@ -306,10 +308,11 @@ interface TradeViewProps {
   onGetSuggestion: () => Promise<void>;
   aiSuggestion: { suggestion: string; isLoading: boolean; error: string | null; };
   isAdminVisible: boolean;
+  isConnected: boolean;
 }
 
 const TradeView: React.FC<TradeViewProps> = (props) => {
-    const { data, onExecuteTrade, isBotRunning, aiSuggestion, onGetSuggestion } = props;
+    const { data, onExecuteTrade, isBotRunning, aiSuggestion, onGetSuggestion, isConnected } = props;
     const chartRef = useRef<HTMLCanvasElement | null>(null);
     const chartInstance = useRef<any | null>(null);
     const [market, setMarket] = useState(Object.keys(data)[0]);
@@ -501,7 +504,7 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
                                 onClick={() => handleTrade('LONG')} 
                                 variant="primary" 
                                 className="!bg-green-600 !hover:bg-green-700 !focus:ring-green-500 px-6 py-2.5 w-full"
-                                disabled={isBotRunning}
+                                disabled={isBotRunning || !isConnected}
                             >
                                 Buy / Long
                             </Button>
@@ -509,13 +512,13 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
                                 onClick={() => handleTrade('SHORT')} 
                                 variant="primary" 
                                 className="!bg-red-600 !hover:bg-red-700 !focus:ring-red-500 px-6 py-2.5 w-full"
-                                disabled={isBotRunning}
+                                disabled={isBotRunning || !isConnected}
                             >
                                 Sell / Short
                             </Button>
-                             {isBotRunning && (
+                             {(isBotRunning || !isConnected) && (
                                 <div className="absolute bottom-full mb-2 w-max bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                                    Manual trading is disabled while AI Strategy is active.
+                                     {!isConnected ? "Connect to exchange to trade." : "Manual trading is disabled while AI Strategy is active."}
                                 </div>
                             )}
                         </div>
@@ -580,11 +583,8 @@ const WalletView: React.FC<{ assets: Asset[], setView: (view: string) => void }>
 };
 
 
-import { verifyAndFetchBalances, transferFunds } from './services/bybitService';
-import { LinkIcon } from './components/icons';
-
-const SettingsView: React.FC<{ onConnectSuccess: (assets: Asset[]) => void, onDisconnect: () => void, addNotification: (message: string, type: Notification['type']) => void }> = ({ onConnectSuccess, onDisconnect, addNotification }) => {
-    const { apiKey, setApiKey, apiSecret, setApiSecret, isConnected, setIsConnected } = useAPI();
+const SettingsView: React.FC<{ onConnectAttempt: (apiKey: string, apiSecret: string) => Promise<void>, onDisconnect: () => void, addNotification: (message: string, type: Notification['type']) => void }> = ({ onConnectAttempt, onDisconnect, addNotification }) => {
+    const { apiKey, setApiKey, apiSecret, setApiSecret, isConnected } = useAPI();
     const [isVerifying, setIsVerifying] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -592,14 +592,10 @@ const SettingsView: React.FC<{ onConnectSuccess: (assets: Asset[]) => void, onDi
         setIsVerifying(true);
         setError(null);
         try {
-            const fetchedAssets = await verifyAndFetchBalances(apiKey, apiSecret);
-            onConnectSuccess(fetchedAssets);
-            setIsConnected(true);
-            addNotification("Successfully connected to exchange!", 'success');
+            await onConnectAttempt(apiKey, apiSecret);
         } catch (e: any) {
             const errorMessage = e.message || "An unknown error occurred.";
             setError(errorMessage);
-            setIsConnected(false);
             addNotification(errorMessage, 'error');
         } finally {
             setIsVerifying(false);
@@ -609,7 +605,6 @@ const SettingsView: React.FC<{ onConnectSuccess: (assets: Asset[]) => void, onDi
     const handleDisconnect = () => {
         setApiKey('');
         setApiSecret('');
-        setIsConnected(false);
         onDisconnect();
         addNotification("Disconnected from exchange.", 'info');
     };
@@ -1294,10 +1289,39 @@ const NotificationContainer: React.FC<{ notifications: Notification[]; onDismiss
     </div>
 );
 
+const LiveTradingWarningModal: React.FC<{ onAccept: () => void; onCancel: () => void; }> = ({ onAccept, onCancel }) => (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
+        <Card className="max-w-lg p-8 border-yellow-500/50">
+            <div className="flex items-center">
+                <ExclamationTriangleIcon className="w-10 h-10 text-yellow-400 mr-4 flex-shrink-0" />
+                <div>
+                    <h2 className="text-2xl font-bold text-white">Enable Live Trading?</h2>
+                    <p className="text-yellow-200 mt-1">You are about to connect to the live exchange.</p>
+                </div>
+            </div>
+            <div className="mt-6 text-gray-300 space-y-3">
+                <p>By proceeding, you acknowledge and agree to the following:</p>
+                <ul className="list-disc list-inside space-y-2 text-sm pl-2">
+                    <li>All trades executed will use <strong className="text-white">real funds</strong> from your exchange account.</li>
+                    <li>This is a high-fidelity simulation and does not connect to a real exchange, but it will behave as if it does. Do not use real API keys.</li>
+                    <li>The creators of this application are not liable for any financial losses incurred.</li>
+                </ul>
+                <p>Please trade responsibly.</p>
+            </div>
+            <div className="mt-8 flex justify-end space-x-4">
+                <Button onClick={onCancel} variant="secondary">Cancel</Button>
+                <Button onClick={onAccept} className="!bg-yellow-600 hover:!bg-yellow-700 !focus:ring-yellow-500 text-white">
+                    I Understand and Accept the Risks
+                </Button>
+            </div>
+        </Card>
+    </div>
+);
+
 
 function AppContent() {
     const [view, setView] = useState('dashboard');
-    const [positions, setPositions] = useState<Position[]>(MOCK_POSITIONS);
+    const [positions, setPositions] = useState<Position[]>([]);
     const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
     const [isBotRunning, setIsBotRunning] = useState(false);
     const [isDeployable, setIsDeployable] = useState(false);
@@ -1311,6 +1335,9 @@ function AppContent() {
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const { isConnected, setIsConnected, apiKey, apiSecret } = useAPI();
     const [aiSuggestion, setAiSuggestion] = useState({ suggestion: '', isLoading: false, error: null as string | null });
+    const [showLiveTradingWarning, setShowLiveTradingWarning] = useState(false);
+    const [pendingConnection, setPendingConnection] = useState<{ apiKey: string; apiSecret: string } | null>(null);
+
 
     const getIconForType = (type: Notification['type']): React.ReactElement => {
         switch (type) {
@@ -1343,7 +1370,7 @@ function AppContent() {
                 try {
                     const fetchedAssets = await verifyAndFetchBalances(apiKey, apiSecret);
                     setAssets(fetchedAssets);
-                    addNotification("Reconnected to exchange successfully.", 'info');
+                    addNotification("Reconnected to live exchange.", 'info');
                 } catch (e: any) {
                     console.error("Failed to reconnect with stored credentials:", e.message);
                     // If keys are no longer valid, disconnect the session in context and revert data
@@ -1367,62 +1394,84 @@ function AppContent() {
         setIsBotRunning(!isBotRunning);
         logActivity(`AI Strategy ${!isBotRunning ? 'activated' : 'deactivated'}.`, 'info');
     };
+    
+    const handleConnectAttempt = async (apiKey: string, apiSecret: string) => {
+        setPendingConnection({ apiKey, apiSecret });
+        setShowLiveTradingWarning(true);
+    };
 
-    const handleConnectSuccess = (fetchedAssets: Asset[]) => {
-        setAssets(fetchedAssets);
+    const handleConfirmLiveTrading = async () => {
+        if (!pendingConnection) return;
+        try {
+            const fetchedAssets = await verifyAndFetchBalances(pendingConnection.apiKey, pendingConnection.apiSecret);
+            setAssets(fetchedAssets);
+            setIsConnected(true);
+            addNotification("Successfully connected to live exchange!", 'success');
+        } catch(e: any) {
+             throw e; // Re-throw to be caught in SettingsView
+        } finally {
+            setShowLiveTradingWarning(false);
+            setPendingConnection(null);
+        }
+    };
+
+    const handleCancelLiveTrading = () => {
+        setShowLiveTradingWarning(false);
+        setPendingConnection(null);
     };
     
     const handleDisconnect = () => {
         setAssets(MOCK_ASSETS); // Revert to mock assets on disconnect
+        setPositions([]);
         setIsConnected(false);
+        clearSessionBalances();
     };
     
-    const handleExecuteTrade = (details: { asset: string; direction: 'LONG' | 'SHORT'; amountUSD: number; }) => {
-        const newPosition: Position = {
-            id: `pos-${Date.now()}`,
-            asset: details.asset,
-            direction: details.direction,
-            entryPrice: MOCK_TRADE_VIEW_DATA[details.asset]['15m'].prices.slice(-1)[0],
-            size: details.amountUSD / MOCK_TRADE_VIEW_DATA[details.asset]['15m'].prices.slice(-1)[0],
-            pnl: 0,
-            pnlPercent: 0,
-            openTimestamp: new Date().toISOString(),
-            seen: false,
-        };
-        setPositions(prev => [...prev, newPosition]);
-        logActivity(`Manual trade executed: ${details.direction} ${newPosition.size.toFixed(4)} ${details.asset}.`, 'trade');
-        addNotification(`Trade executed: ${details.direction} ${details.asset}`, 'success');
+    const handleExecuteTrade = async (details: { asset: string; direction: 'LONG' | 'SHORT'; amountUSD: number; }) => {
+        if (!isConnected) {
+            addNotification("Cannot execute trade. Not connected to exchange.", 'error');
+            return;
+        }
+        try {
+            const newPositionData = await executeLiveTrade(details);
+            setPositions(prev => [...prev, newPositionData.position]);
+            setAssets(newPositionData.updatedAssets); // Update assets from the service response
+            logActivity(`Live trade executed: ${details.direction} ${newPositionData.position.size.toFixed(4)} ${details.asset}.`, 'trade');
+            addNotification(`Trade executed: ${details.direction} ${details.asset}`, 'success');
+        } catch (error: any) {
+            logActivity(`Trade failed: ${error.message}`, 'loss');
+            addNotification(`Trade failed: ${error.message}`, 'error');
+        }
     };
     
-    const handleClosePosition = (positionId: string, source: 'Manual' | 'AI' = 'Manual') => {
+    const handleClosePosition = async (positionId: string, source: 'Manual' | 'AI' = 'Manual') => {
+         if (!isConnected) {
+            addNotification("Cannot close position. Not connected to exchange.", 'error');
+            return;
+        }
         const posToClose = positions.find(p => p.id === positionId);
         if (!posToClose) return;
 
-        const exitPrice = MOCK_TRADE_VIEW_DATA[posToClose.asset]['15m'].prices.slice(-1)[0] * (1 + (Math.random() - 0.5) * 0.002);
-        const pnl = (exitPrice - posToClose.entryPrice) * posToClose.size * (posToClose.direction === 'LONG' ? 1 : -1);
-        
-        const newClosedTrade: ClosedTrade = {
-            id: `trade-${Date.now()}`,
-            asset: posToClose.asset,
-            direction: posToClose.direction,
-            entryPrice: posToClose.entryPrice,
-            exitPrice: exitPrice,
-            size: posToClose.size,
-            pnl: pnl,
-            openTimestamp: posToClose.openTimestamp,
-            closeTimestamp: new Date().toISOString()
-        };
-        
-        setClosedTrades(prev => [...prev, newClosedTrade]);
-        setPositions(prev => prev.filter(p => p.id !== positionId));
-        setRealizedPnl(prev => prev + pnl);
+        try {
+            const closeResult = await closeLivePosition(posToClose);
+            const { closedTrade, updatedAssets } = closeResult;
+            
+            setClosedTrades(prev => [...prev, closedTrade]);
+            setPositions(prev => prev.filter(p => p.id !== positionId));
+            setRealizedPnl(prev => prev + closedTrade.pnl);
+            setAssets(updatedAssets);
 
-        const logMessage = source === 'AI' 
-            ? `AI closed ${posToClose.asset} position. PnL: $${pnl.toFixed(2)}.`
-            : `Position closed for ${posToClose.asset}. PnL: $${pnl.toFixed(2)}.`;
-        
-        logActivity(logMessage, pnl >= 0 ? 'profit' : 'loss');
-        addNotification(`Closed ${posToClose.asset} position for $${pnl.toFixed(2)} PnL.`, 'info');
+            const logMessage = source === 'AI' 
+                ? `AI closed ${posToClose.asset} position. PnL: $${closedTrade.pnl.toFixed(2)}.`
+                : `Position closed for ${posToClose.asset}. PnL: $${closedTrade.pnl.toFixed(2)}.`;
+            
+            logActivity(logMessage, closedTrade.pnl >= 0 ? 'profit' : 'loss');
+            addNotification(`Closed ${posToClose.asset} position for $${closedTrade.pnl.toFixed(2)} PnL.`, 'info');
+
+        } catch (error: any) {
+            logActivity(`Failed to close position: ${error.message}`, 'loss');
+            addNotification(`Failed to close position: ${error.message}`, 'error');
+        }
     };
     
     const handleWithdrawProfits = async () => {
@@ -1533,6 +1582,8 @@ function AppContent() {
         let botInterval: number | null = null;
     
         const simulateBotAction = () => {
+            if (!isConnected) return; // Don't trade if not connected
+
             const shouldClose = Math.random() < 0.3 && positions.length > 0;
             const maxPositions = 5; // As defined in settings view
     
@@ -1546,20 +1597,8 @@ function AppContent() {
                 const asset = markets[Math.floor(Math.random() * markets.length)];
                 const direction = Math.random() < 0.5 ? 'LONG' : 'SHORT';
                 const amountUSD = Math.floor(Math.random() * (500 - 50 + 1)) + 50; // Random amount: $50-$500
-    
-                const newPosition: Position = {
-                    id: `pos-${Date.now()}`,
-                    asset: asset,
-                    direction: direction,
-                    entryPrice: MOCK_TRADE_VIEW_DATA[asset]['15m'].prices.slice(-1)[0],
-                    size: amountUSD / MOCK_TRADE_VIEW_DATA[asset]['15m'].prices.slice(-1)[0],
-                    pnl: 0,
-                    pnlPercent: 0,
-                    openTimestamp: new Date().toISOString(),
-                    seen: false,
-                };
-                setPositions(prev => [...prev, newPosition]);
-                logActivity(`AI opened ${direction} on ${asset} for $${amountUSD.toFixed(2)}.`, 'trade');
+                
+                handleExecuteTrade({ asset, direction, amountUSD });
             }
         };
     
@@ -1573,7 +1612,30 @@ function AppContent() {
                 clearInterval(botInterval);
             }
         };
-    }, [isBotRunning, positions]);
+    }, [isBotRunning, isConnected, positions]);
+
+     // Real-time PnL Update Simulation
+    useEffect(() => {
+        const pnlInterval = setInterval(() => {
+            if (positions.length === 0) return;
+
+            setPositions(prevPositions =>
+                prevPositions.map(pos => {
+                    // Simulate a small price fluctuation
+                    const priceFluctuation = (Math.random() - 0.5) * 0.001; // +/- 0.05%
+                    const currentPrice = MOCK_TRADE_VIEW_DATA[pos.asset]['15m'].prices[0] * (1 + priceFluctuation);
+
+                    const newPnl = (currentPrice - pos.entryPrice) * pos.size * (pos.direction === 'LONG' ? 1 : -1);
+                    const costBasis = pos.entryPrice * pos.size;
+                    const newPnlPercent = costBasis !== 0 ? (newPnl / costBasis) * 100 : 0;
+                    
+                    return { ...pos, pnl: newPnl, pnlPercent: newPnlPercent };
+                })
+            );
+        }, 3000); // Update every 3 seconds
+
+        return () => clearInterval(pnlInterval);
+    }, [positions]);
 
     // Admin View Security
     if (view === 'admin' && !isAdminVisible) {
@@ -1601,11 +1663,11 @@ function AppContent() {
             case 'dashboard':
                 return <DashboardView history={MOCK_PORTFOLIO_HISTORY} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleClosePosition} />;
             case 'trade':
-                return <TradeView data={MOCK_TRADE_VIEW_DATA} onExecuteTrade={handleExecuteTrade} isBotRunning={isBotRunning} onToggleBot={handleToggleBot} isDeployable={isDeployable} realizedPnl={realizedPnl} activityLog={activityLog} onWithdrawProfits={handleWithdrawProfits} onGetSuggestion={getTradingSuggestionHandler} aiSuggestion={aiSuggestion} isAdminVisible={isAdminVisible} />;
+                return <TradeView data={MOCK_TRADE_VIEW_DATA} onExecuteTrade={handleExecuteTrade} isBotRunning={isBotRunning} onToggleBot={handleToggleBot} isDeployable={isDeployable} realizedPnl={realizedPnl} activityLog={activityLog} onWithdrawProfits={handleWithdrawProfits} onGetSuggestion={getTradingSuggestionHandler} aiSuggestion={aiSuggestion} isAdminVisible={isAdminVisible} isConnected={isConnected} />;
             case 'wallet':
                 return <WalletView assets={assets} setView={setView} />;
             case 'settings':
-                return <SettingsView onConnectSuccess={handleConnectSuccess} onDisconnect={handleDisconnect} addNotification={addNotification} />;
+                return <SettingsView onConnectAttempt={handleConnectAttempt} onDisconnect={handleDisconnect} addNotification={addNotification} />;
             case 'strategy':
                 return <StrategyView onDeployScript={handleDeployScript} />;
             case 'history':
@@ -1623,6 +1685,12 @@ function AppContent() {
 
     return (
         <div className="flex h-screen bg-gray-900 text-gray-100">
+            {showLiveTradingWarning && (
+                <LiveTradingWarningModal
+                    onAccept={handleConfirmLiveTrading}
+                    onCancel={handleCancelLiveTrading}
+                />
+            )}
             <NotificationContainer notifications={notifications} onDismiss={removeNotification} />
             <Sidebar 
                 currentView={view} 

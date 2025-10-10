@@ -1,75 +1,168 @@
+import type { Asset, Position, ClosedTrade } from '../types';
+import { MOCK_TRADE_VIEW_DATA } from '../constants';
 
-import type { Asset } from '../types';
 
-// This is a stateful mock service to simulate fetching data from the Bybit API.
-// In a real application, this would use a library like 'bybit-api'
-// and include proper request signing with the API key and secret.
+// This service simulates a live connection to the Bybit API.
+// It maintains a session-specific state for balances and processes trade executions.
 
-let mockBalances: Asset[] = [
-  { name: 'USDT', total: 500000.00, available: 480000.00, inOrders: 20000.00, usdValue: 500000.00 },
-  { name: 'Bitcoin (BTC)', total: 0.25, available: 0.20, inOrders: 0.05, usdValue: 17253.75 },
-  { name: 'Ethereum (ETH)', total: 2.5, available: 2.5, inOrders: 0, usdValue: 9226.25 },
-];
+let sessionBalances: Asset[] | null = null;
 
-/**
- * Simulates verifying API keys and fetching wallet balances from Bybit.
- * @param apiKey The user's API key.
- * @param apiSecret The user's API secret.
- * @returns A promise that resolves with an array of Assets.
- * @throws An error if the keys are invalid.
- */
+const generateRandomBalances = (): Asset[] => {
+    const randomFloat = (min: number, max: number, decimals: number) => {
+        const str = (Math.random() * (max - min) + min).toFixed(decimals);
+        return parseFloat(str);
+    };
+
+    const usdtAmount = randomFloat(10000, 100000, 2);
+    const btcAmount = randomFloat(0.1, 5, 6);
+    const ethAmount = randomFloat(1, 50, 4);
+    
+    const btcPrice = 69000;
+    const ethPrice = 3700;
+
+    return [
+        { name: 'USDT', total: usdtAmount, available: usdtAmount, inOrders: 0, usdValue: usdtAmount },
+        { name: 'Bitcoin (BTC)', total: btcAmount, available: btcAmount, inOrders: 0, usdValue: btcAmount * btcPrice },
+        { name: 'Ethereum (ETH)', total: ethAmount, available: ethAmount, inOrders: 0, usdValue: ethAmount * ethPrice },
+    ];
+};
+
 export const verifyAndFetchBalances = (apiKey: string, apiSecret: string): Promise<Asset[]> => {
   return new Promise((resolve, reject) => {
-    // Simulate network delay
     setTimeout(() => {
-      // Mock verification: succeed if both fields have any content.
       if (apiKey.trim().length > 0 && apiSecret.trim().length > 0) {
-        console.log("Bybit Service: API Keys provided. Mocking successful verification.");
-        // Return a deep copy to prevent direct mutation of the service's state from the client
-        resolve(JSON.parse(JSON.stringify(mockBalances)));
+        if (!sessionBalances) {
+            sessionBalances = generateRandomBalances();
+        }
+        resolve(JSON.parse(JSON.stringify(sessionBalances)));
       } else {
-        console.log("Bybit Service: API Key or Secret is missing.");
         reject(new Error("Verification Failed: API Key and Secret cannot be empty."));
       }
-    }, 1500); // 1.5 second delay
+    }, 1500);
   });
 };
 
-/**
- * Simulates transferring funds within the exchange, updating the persistent mock balance.
- * In a real app, this would make a POST request to the transfer endpoint.
- * @param amount The amount to transfer.
- * @param currency The currency to transfer, e.g., 'USDT'.
- * @returns A promise that resolves when the transfer is "complete".
- */
 export const transferFunds = (amount: number, currency: string): Promise<void> => {
   return new Promise((resolve, reject) => {
-    console.log(`Bybit Service: Simulating transfer of ${amount} ${currency}.`);
     setTimeout(() => {
-      if (amount <= 0) {
-        return reject(new Error("Transfer amount must be positive."));
-      }
+      if (amount <= 0) return reject(new Error("Transfer amount must be positive."));
+      if (!sessionBalances) return reject(new Error("Cannot transfer funds, no active connection session."));
 
-      // Find the asset to update. In this simulation, we assume 'currency' is a stablecoin like USDT.
-      const assetToUpdate = mockBalances.find(a => a.name === currency);
-
+      const assetToUpdate = sessionBalances.find(a => a.name === currency);
       if (assetToUpdate) {
         assetToUpdate.total += amount;
         assetToUpdate.available += amount;
         assetToUpdate.usdValue += amount;
       } else {
-        // If the stablecoin doesn't exist in the wallet, create it.
-        mockBalances.push({
-          name: currency,
-          total: amount,
-          available: amount,
-          inOrders: 0,
-          usdValue: amount,
-        });
+        sessionBalances.push({ name: currency, total: amount, available: amount, inOrders: 0, usdValue: amount });
       }
-      
-      console.log(`Bybit Service: Balances updated. New ${currency} total: ${mockBalances.find(a => a.name === currency)?.total}`);
       resolve();
-    }, 1000); // 1 second delay
+    }, 1000);
   });
+};
+
+export const clearSessionBalances = (): void => {
+    sessionBalances = null;
+};
+
+// --- Live Trading Functions ---
+
+interface ExecuteTradeDetails {
+    asset: string;
+    direction: 'LONG' | 'SHORT';
+    amountUSD: number;
+}
+
+interface ExecuteTradeResult {
+    position: Position;
+    updatedAssets: Asset[];
+}
+
+export const executeLiveTrade = (details: ExecuteTradeDetails): Promise<ExecuteTradeResult> => {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (!sessionBalances) {
+                return reject(new Error("No active exchange session."));
+            }
+            
+            const collateralAsset = sessionBalances.find(a => a.name === 'USDT');
+            if (!collateralAsset || collateralAsset.available < details.amountUSD) {
+                return reject(new Error("Insufficient USDT balance to open position."));
+            }
+
+            // Simulate market execution
+            const entryPrice = MOCK_TRADE_VIEW_DATA[details.asset]['15m'].prices[0] * (1 + (Math.random() - 0.5) * 0.0005);
+            const size = details.amountUSD / entryPrice;
+
+            // Update balances
+            collateralAsset.available -= details.amountUSD;
+            collateralAsset.inOrders += details.amountUSD;
+
+            const newPosition: Position = {
+                id: `pos-${Date.now()}`,
+                asset: details.asset,
+                direction: details.direction,
+                entryPrice: entryPrice,
+                size: size,
+                pnl: 0,
+                pnlPercent: 0,
+                openTimestamp: new Date().toISOString(),
+                seen: false,
+            };
+            
+            resolve({
+                position: newPosition,
+                updatedAssets: JSON.parse(JSON.stringify(sessionBalances)),
+            });
+
+        }, 1000); // Simulate network latency
+    });
+};
+
+
+interface ClosePositionResult {
+    closedTrade: ClosedTrade;
+    updatedAssets: Asset[];
+}
+
+export const closeLivePosition = (position: Position): Promise<ClosePositionResult> => {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (!sessionBalances) {
+                return reject(new Error("No active exchange session."));
+            }
+            const collateralAsset = sessionBalances.find(a => a.name === 'USDT');
+            if (!collateralAsset) {
+                 return reject(new Error("Critical error: USDT collateral not found."));
+            }
+
+            // Simulate market close
+            const exitPrice = MOCK_TRADE_VIEW_DATA[position.asset]['15m'].prices[0] * (1 + (Math.random() - 0.5) * 0.001);
+            const pnl = (exitPrice - position.entryPrice) * position.size * (position.direction === 'LONG' ? 1 : -1);
+            const initialCapital = position.entryPrice * position.size;
+
+            // Update balances
+            collateralAsset.inOrders -= initialCapital;
+            if (collateralAsset.inOrders < 0) collateralAsset.inOrders = 0; // Prevent negative inOrders
+            collateralAsset.available += (initialCapital + pnl);
+
+            const closedTrade: ClosedTrade = {
+                id: `trade-${Date.now()}`,
+                asset: position.asset,
+                direction: position.direction,
+                entryPrice: position.entryPrice,
+                exitPrice: exitPrice,
+                size: position.size,
+                pnl: pnl,
+                openTimestamp: position.openTimestamp,
+                closeTimestamp: new Date().toISOString(),
+            };
+
+            resolve({
+                closedTrade,
+                updatedAssets: JSON.parse(JSON.stringify(sessionBalances)),
+            });
+
+        }, 1000);
+    });
 };
