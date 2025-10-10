@@ -788,7 +788,7 @@ const Sidebar: React.FC<{ currentView: string; setView: (view: string) => void }
   <aside className="w-64 bg-gray-900/70 border-r border-gray-800 p-4 flex flex-col">
     <div className="text-2xl font-bold text-white mb-10 px-2 flex items-center">
       <ArrowTrendingUpIcon className="w-8 h-8 mr-2 text-cyan-400"/>
-      Phoenix AI
+      Xamanix
     </div>
     <nav className="space-y-2">
       <NavItem icon={<DashboardIcon />} label="Dashboard" isActive={currentView === 'dashboard'} onClick={() => setView('dashboard')} />
