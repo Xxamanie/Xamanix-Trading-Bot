@@ -200,9 +200,10 @@ interface AIStatusPanelProps {
     onWithdrawProfits: () => void;
     onGetSuggestion: () => Promise<void>;
     aiSuggestion: { suggestion: string, isLoading: boolean, error: string | null };
+    isAdminVisible: boolean;
 }
 
-const AIStatusPanel: React.FC<AIStatusPanelProps> = ({ isBotRunning, onToggleBot, isDeployable, realizedPnl, activityLog, onWithdrawProfits, onGetSuggestion, aiSuggestion }) => {
+const AIStatusPanel: React.FC<AIStatusPanelProps> = ({ isBotRunning, onToggleBot, isDeployable, realizedPnl, activityLog, onWithdrawProfits, onGetSuggestion, aiSuggestion, isAdminVisible }) => {
     const logContainerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -244,8 +245,8 @@ const AIStatusPanel: React.FC<AIStatusPanelProps> = ({ isBotRunning, onToggleBot
                          {realizedPnl >= 0 ? '+' : '-'}${Math.abs(realizedPnl).toFixed(2)}
                     </p>
                 </div>
-                <Button onClick={onWithdrawProfits} disabled={realizedPnl <= 0} className="w-full">
-                    Withdraw Profits to Main Capital
+                <Button onClick={onWithdrawProfits} disabled={realizedPnl <= 0 && !isAdminVisible} className="w-full">
+                    {isAdminVisible && realizedPnl <= 0 ? 'Reset PnL to Zero' : 'Withdraw Profits to Main Capital'}
                 </Button>
             </div>
             <div className="px-4 pb-4 space-y-3">
@@ -301,6 +302,7 @@ interface TradeViewProps {
   onWithdrawProfits: () => void;
   onGetSuggestion: () => Promise<void>;
   aiSuggestion: { suggestion: string; isLoading: boolean; error: string | null; };
+  isAdminVisible: boolean;
 }
 
 const TradeView: React.FC<TradeViewProps> = (props) => {
@@ -329,15 +331,38 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
             chartInstance.current.destroy();
         }
 
+        const smaPeriod = 20; // Define period for Simple Moving Average
+
+        const calculateSMA = (data: number[], period: number): (number | null)[] => {
+            if (data.length < period) return Array(data.length).fill(null);
+            
+            const sma: (number | null)[] = Array(period - 1).fill(null);
+            for (let i = period - 1; i < data.length; i++) {
+                const sum = data.slice(i - period + 1, i + 1).reduce((acc, val) => acc + val, 0);
+                sma.push(sum / period);
+            }
+            return sma;
+        };
+
+        const initialPrices = [...marketData.prices];
+        const initialSmaData = calculateSMA(initialPrices, smaPeriod);
+
         chartInstance.current = new Chart(ctx, {
             type: 'line',
             data: {
                 labels: marketData.timestamps.map(t => new Date(t).toLocaleTimeString()),
                 datasets: [{
                     label: `${market} Price (${candleFrequency})`,
-                    data: [...marketData.prices], 
+                    data: initialPrices, 
                     borderColor: '#22d3ee',
                     borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.1,
+                }, {
+                    label: `SMA (${smaPeriod})`,
+                    data: initialSmaData,
+                    borderColor: '#ef4444', // Red color
+                    borderWidth: 1.5,
                     pointRadius: 0,
                     tension: 0.1,
                 }]
@@ -358,8 +383,9 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
         const intervalId = setInterval(() => {
             if (!chartInstance.current) return;
             
-            const currentData = chartInstance.current.data.datasets[0].data;
-            const lastPrice = currentData[currentData.length - 1];
+            const priceDataset = chartInstance.current.data.datasets[0];
+            const smaDataset = chartInstance.current.data.datasets[1];
+            const lastPrice = priceDataset.data[priceDataset.data.length - 1];
 
             let volatility = 0.0001;
             if (market.includes('SOL')) volatility = 0.0005;
@@ -368,11 +394,24 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
             const newPrice = lastPrice * (1 + (Math.random() - 0.5) * volatility);
             const newTimestamp = new Date().toLocaleTimeString();
 
+            // Update labels
             chartInstance.current.data.labels.push(newTimestamp);
-            chartInstance.current.data.datasets[0].data.push(newPrice);
-            
             chartInstance.current.data.labels.shift();
-            chartInstance.current.data.datasets[0].data.shift();
+
+            // Update price data
+            priceDataset.data.push(newPrice);
+            priceDataset.data.shift();
+            
+            // Update SMA data
+            const currentPrices = priceDataset.data;
+            const newSmaSlice = currentPrices.slice(-smaPeriod);
+            let newSmaValue = null;
+            if (newSmaSlice.length >= smaPeriod) {
+                 const sum = newSmaSlice.reduce((acc: number, val: number) => acc + val, 0);
+                 newSmaValue = sum / smaPeriod;
+            }
+            smaDataset.data.push(newSmaValue);
+            smaDataset.data.shift();
 
             chartInstance.current.update('quiet');
         }, 1500);
@@ -432,6 +471,7 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
                     onWithdrawProfits={props.onWithdrawProfits}
                     onGetSuggestion={onGetSuggestion}
                     aiSuggestion={aiSuggestion}
+                    isAdminVisible={props.isAdminVisible}
                 />
                  <Card className="p-4 flex-shrink-0">
                     <h3 className="text-lg font-semibold text-white mb-4">Manual Trade</h3>
@@ -1370,9 +1410,14 @@ function AppContent() {
     };
     
     const handleWithdrawProfits = () => {
-        addNotification(`$${realizedPnl.toFixed(2)} profits withdrawn.`, 'success');
+        if (isAdminVisible && realizedPnl <= 0) {
+            addNotification(`Admin Action: Segregated PnL of $${realizedPnl.toFixed(2)} has been reset.`, 'info');
+            logActivity('Admin reset segregated PnL to zero.', 'info');
+        } else {
+            addNotification(`$${realizedPnl.toFixed(2)} profits withdrawn.`, 'success');
+            logActivity('Profits withdrawn to main capital.', 'info');
+        }
         setRealizedPnl(0);
-        logActivity('Profits withdrawn to main capital.', 'info');
     };
     
     const handleFormSubmit = (submission: Omit<UserSubmission, 'id' | 'timestamp' | 'read'>) => {
@@ -1508,7 +1553,7 @@ function AppContent() {
             case 'dashboard':
                 return <DashboardView history={MOCK_PORTFOLIO_HISTORY} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleClosePosition} />;
             case 'trade':
-                return <TradeView data={MOCK_TRADE_VIEW_DATA} onExecuteTrade={handleExecuteTrade} isBotRunning={isBotRunning} onToggleBot={handleToggleBot} isDeployable={isDeployable} realizedPnl={realizedPnl} activityLog={activityLog} onWithdrawProfits={handleWithdrawProfits} onGetSuggestion={getTradingSuggestionHandler} aiSuggestion={aiSuggestion} />;
+                return <TradeView data={MOCK_TRADE_VIEW_DATA} onExecuteTrade={handleExecuteTrade} isBotRunning={isBotRunning} onToggleBot={handleToggleBot} isDeployable={isDeployable} realizedPnl={realizedPnl} activityLog={activityLog} onWithdrawProfits={handleWithdrawProfits} onGetSuggestion={getTradingSuggestionHandler} aiSuggestion={aiSuggestion} isAdminVisible={isAdminVisible} />;
             case 'wallet':
                 return <WalletView assets={assets} setView={setView} />;
             case 'settings':
