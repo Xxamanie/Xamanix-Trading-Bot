@@ -2,8 +2,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import type { AnalysisResult, Recommendation, BacktestResult } from '../types';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-
 const analysisSchema = {
   type: Type.OBJECT,
   properties: {
@@ -39,6 +37,7 @@ const analysisSchema = {
 
 
 export async function analyzeCode(code: string): Promise<AnalysisResult> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
     const prompt = `
     You are an expert trading algorithm developer and Python programmer. Your task is to analyze the provided Python trading bot script, extract its parameters, and suggest concrete, actionable enhancements.
 
@@ -127,6 +126,7 @@ const backtestResultSchema = {
 };
 
 export async function runBacktest(code: string): Promise<BacktestResult> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
     const prompt = `
     You are a sandboxed Python execution environment. Your task is to execute the provided Python trading bot script and capture its standard output to construct the backtest results.
 
@@ -175,6 +175,7 @@ export async function runBacktest(code: string): Promise<BacktestResult> {
 
 
 export async function generateEnhancedCode(originalCode: string, recommendations: Recommendation[]): Promise<string> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
     const modifications = recommendations.map((rec, index) => `
 --- MODIFICATION ${index + 1}: ${rec.title} ---
 ${rec.description}
@@ -219,6 +220,7 @@ ${rec.pythonCodeSnippet}
 }
 
 export async function getTradingSuggestion(context: string): Promise<string> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
     const prompt = `
     You are an AI Trading Assistant. Based on the provided context about a user's trading bot performance, provide a brief, actionable suggestion.
     Speak directly to the user. Keep it concise (1-2 sentences).
