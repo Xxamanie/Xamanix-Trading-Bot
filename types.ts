@@ -1,0 +1,84 @@
+export interface Asset {
+  name: string;
+  total: number;
+  available: number;
+  inOrders: number;
+  usdValue: number;
+}
+
+export interface Position {
+  id: string;
+  asset: string;
+  direction: 'LONG' | 'SHORT';
+  entryPrice: number;
+  size: number;
+  pnl: number;
+  pnlPercent: number;
+  openTimestamp: string;
+}
+
+export interface ClosedTrade {
+  id: string;
+  asset: string;
+  direction: 'LONG' | 'SHORT';
+  entryPrice: number;
+  exitPrice: number;
+  size: number;
+  pnl: number;
+  openTimestamp: string;
+  closeTimestamp: string;
+}
+
+export interface PortfolioHistory {
+  timestamps: string[];
+  equity: number[];
+}
+
+export interface PriceData {
+    timestamps: string[];
+    prices: number[];
+}
+
+export interface TradeViewData {
+    [market: string]: {
+        [frequency: string]: PriceData;
+    };
+}
+
+
+export interface AnalysisParameter {
+  name: string;
+  value: string;
+  description: string;
+}
+
+export interface Recommendation {
+  title: string;
+  description:string;
+  pythonCodeSnippet: string;
+}
+
+export interface AnalysisResult {
+  parameters: AnalysisParameter[];
+  recommendations: Recommendation[];
+}
+
+export interface BacktestSummary {
+    final_equity: number;
+    total_return_pct: number;
+    n_trades: number;
+    wins: number;
+    win_rate: number;
+    avg_win: number;
+    avg_loss: number;
+    profit_factor: number;
+    max_consecutive_losses: number;
+    max_drawdown: number;
+    sharpe: number;
+}
+
+export interface BacktestResult {
+    summary: BacktestSummary;
+    equity_curve_csv: string;
+    error?: string;
+}
