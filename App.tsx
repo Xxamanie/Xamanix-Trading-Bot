@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade } from './types';
 import { MOCK_PORTFOLIO_HISTORY, MOCK_ASSETS, MOCK_POSITIONS, MOCK_TRADE_VIEW_DATA, DEFAULT_SCRIPT } from './constants';
@@ -6,6 +7,7 @@ import RecommendationsPanel from './components/RecommendationsPanel';
 import BacktestResults from './components/BacktestResults';
 import CodeViewer from './components/CodeViewer';
 import { analyzeCode, runBacktest, generateEnhancedCode, getTradingSuggestion } from './services/geminiService';
+import { APIProvider, useAPI } from './contexts/APIContext';
 
 // @ts-ignore - Chart is loaded from a script tag in index.html
 const Chart = window.Chart;
@@ -43,7 +45,7 @@ const ToggleSwitch: React.FC<{ isEnabled: boolean; onToggle: () => void; isDisab
   </button>
 );
 
-const Input: React.FC<{ label: string; type?: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder?: string, leadingAddon?: string }> = ({ label, type = "text", value, onChange, placeholder, leadingAddon }) => (
+const Input: React.FC<{ label: string; type?: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder?: string, leadingAddon?: string; disabled?: boolean; }> = ({ label, type = "text", value, onChange, placeholder, leadingAddon, disabled = false }) => (
     <div>
         <label className="block text-sm font-medium text-gray-400 mb-1">{label}</label>
         <div className="relative">
@@ -57,7 +59,8 @@ const Input: React.FC<{ label: string; type?: string; value: string; onChange: (
                 value={value}
                 onChange={onChange}
                 placeholder={placeholder}
-                className={`w-full bg-gray-700 border border-gray-600 rounded-md py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 ${leadingAddon ? 'pl-7' : 'px-3'}`}
+                disabled={disabled}
+                className={`w-full bg-gray-700 border border-gray-600 rounded-md py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 ${leadingAddon ? 'pl-7' : 'px-3'} disabled:bg-gray-800 disabled:cursor-not-allowed`}
             />
         </div>
     </div>
@@ -65,7 +68,7 @@ const Input: React.FC<{ label: string; type?: string; value: string; onChange: (
 
 
 // View Components
-const DashboardView: React.FC<{ history: PortfolioHistory; positions: Position[], realizedPnl: number, assets: Asset[] }> = ({ history, positions, realizedPnl, assets }) => {
+const DashboardView: React.FC<{ history: PortfolioHistory; positions: Position[], realizedPnl: number, assets: Asset[], onManualClosePosition: (positionId: string) => void }> = ({ history, positions, realizedPnl, assets, onManualClosePosition }) => {
     const chartRef = useRef<HTMLCanvasElement | null>(null);
     const chartInstance = useRef<any | null>(null);
 
@@ -74,7 +77,7 @@ const DashboardView: React.FC<{ history: PortfolioHistory; positions: Position[]
     const totalValue = usdBalance + openPnl + realizedPnl;
     const yesterdaysValue = history.equity[history.equity.length - 2] ?? totalValue;
     const todaysChange = totalValue - yesterdaysValue;
-    const todaysChangePct = todaysChange / yesterdaysValue * 100;
+    const todaysChangePct = yesterdaysValue !== 0 ? (todaysChange / yesterdaysValue) * 100 : 0;
 
     useEffect(() => {
         if (!chartRef.current) return;
@@ -142,20 +145,31 @@ const DashboardView: React.FC<{ history: PortfolioHistory; positions: Position[]
             <Card>
                 <h3 className="text-lg font-semibold text-white p-4 border-b border-gray-700">Open Positions</h3>
                 <div className="divide-y divide-gray-700">
-                    {positions.map(pos => (
+                    {positions.length > 0 ? positions.map(pos => (
                         <div key={pos.id} className="p-4 flex justify-between items-center hover:bg-gray-800 transition-colors">
-                            <div>
-                                <p className="font-bold">{pos.asset} <span className="text-xs font-normal text-gray-500">{pos.direction}</span></p>
-                                <p className="text-sm text-gray-400">Entry: ${pos.entryPrice.toLocaleString()}</p>
-                            </div>
-                            <div className="text-right">
-                                <p className={`font-semibold ${pos.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                    {pos.pnl >= 0 ? '+' : '-'}${Math.abs(pos.pnl).toFixed(2)} ({pos.pnlPercent.toFixed(2)}%)
-                                </p>
-                                <p className="text-sm text-gray-400">Size: {pos.size}</p>
+                           <div className="flex-1 grid grid-cols-5 items-center gap-4">
+                                <div className="col-span-2">
+                                    <p className="font-bold">{pos.asset} <span className={`text-xs font-semibold ${pos.direction === 'LONG' ? 'text-green-400' : 'text-red-400'}`}>{pos.direction}</span></p>
+                                    <p className="text-sm text-gray-400">Entry: ${pos.entryPrice.toLocaleString()}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-sm text-gray-400">Size</p>
+                                    <p className="font-semibold">{pos.size.toFixed(4)}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-sm text-gray-400">PnL</p>
+                                    <p className={`font-semibold ${pos.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                        {pos.pnl >= 0 ? '+' : '-'}${Math.abs(pos.pnl).toFixed(2)} ({pos.pnlPercent.toFixed(2)}%)
+                                    </p>
+                                </div>
+                                <div className="text-right">
+                                    <Button onClick={() => onManualClosePosition(pos.id)} className="!py-1.5 !px-3 text-sm">Close</Button>
+                                </div>
                             </div>
                         </div>
-                    ))}
+                    )) : (
+                        <p className="text-center text-gray-500 py-8">No open positions.</p>
+                    )}
                 </div>
             </Card>
         </div>
@@ -441,61 +455,115 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
     );
 };
 
-const WalletView: React.FC<{ assets: Asset[] }> = ({ assets }) => (
-    <div className="p-6">
-        <Card>
-            <h3 className="text-lg font-semibold text-white p-4 border-b border-gray-700">Wallet Balances</h3>
-            <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                    <thead className="text-xs text-gray-400 uppercase bg-gray-800">
-                        <tr>
-                            <th className="px-6 py-3">Asset</th>
-                            <th className="px-6 py-3">Total</th>
-                            <th className="px-6 py-3">Available</th>
-                            <th className="px-6 py-3">In Orders</th>
-                            <th className="px-6 py-3">USD Value</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {assets.map(asset => (
-                            <tr key={asset.name} className="border-b border-gray-700 hover:bg-gray-800/70 transition-colors">
-                                <td className="px-6 py-4 font-semibold text-white">{asset.name}</td>
-                                <td className="px-6 py-4">{asset.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                <td className="px-6 py-4">{asset.available.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                <td className="px-6 py-4">{asset.inOrders.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                <td className="px-6 py-4">${asset.usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+const WalletView: React.FC<{ assets: Asset[], setView: (view: string) => void }> = ({ assets, setView }) => {
+    const { isConnected } = useAPI();
+
+    if (!isConnected) {
+        return (
+            <div className="p-6 flex items-center justify-center h-full text-center">
+                <Card className="p-8 max-w-md">
+                    <WalletIcon />
+                    <h3 className="text-xl font-bold text-white mt-4">Connect Your Exchange</h3>
+                    <p className="text-gray-400 mt-2 mb-6">
+                        To view your live wallet balances, please connect your Bybit API keys in the Settings page.
+                    </p>
+                    <Button variant="primary" onClick={() => setView('settings')}>
+                        Go to Settings
+                    </Button>
+                </Card>
             </div>
-        </Card>
-    </div>
-);
+        );
+    }
+
+    return (
+        <div className="p-6">
+            <Card>
+                <h3 className="text-lg font-semibold text-white p-4 border-b border-gray-700">Wallet Balances</h3>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead className="text-xs text-gray-400 uppercase bg-gray-800">
+                            <tr>
+                                <th className="px-6 py-3">Asset</th>
+                                <th className="px-6 py-3">Total</th>
+                                <th className="px-6 py-3">Available</th>
+                                <th className="px-6 py-3">In Orders</th>
+                                <th className="px-6 py-3">USD Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {assets.map(asset => (
+                                <tr key={asset.name} className="border-b border-gray-700 hover:bg-gray-800/70 transition-colors">
+                                    <td className="px-6 py-4 font-semibold text-white">{asset.name}</td>
+                                    <td className="px-6 py-4">{asset.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}</td>
+                                    <td className="px-6 py-4">{asset.available.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}</td>
+                                    <td className="px-6 py-4">{asset.inOrders.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}</td>
+                                    <td className="px-6 py-4">${asset.usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </Card>
+        </div>
+    );
+};
 
 
-const SettingsView: React.FC = () => {
-    const [apiKey, setApiKey] = useState('********************');
-    const [apiSecret, setApiSecret] = useState('********************');
-    const [isSaved, setIsSaved] = useState(false);
+import { verifyAndFetchBalances } from './services/bybitService';
+import { LinkIcon } from './components/icons';
 
-    const handleSave = () => {
-        console.log("Saving API keys (simulated)");
-        setIsSaved(true);
-        setTimeout(() => setIsSaved(false), 3000);
+const SettingsView: React.FC<{ onConnectSuccess: (assets: Asset[]) => void, onDisconnect: () => void }> = ({ onConnectSuccess, onDisconnect }) => {
+    const { apiKey, setApiKey, apiSecret, setApiSecret, isConnected, setIsConnected } = useAPI();
+    const [isVerifying, setIsVerifying] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const handleVerifyAndConnect = async () => {
+        setIsVerifying(true);
+        setError(null);
+        try {
+            const fetchedAssets = await verifyAndFetchBalances(apiKey, apiSecret);
+            onConnectSuccess(fetchedAssets);
+            setIsConnected(true);
+        } catch (e: any) {
+            setError(e.message || "An unknown error occurred.");
+            setIsConnected(false);
+        } finally {
+            setIsVerifying(false);
+        }
+    };
+    
+    const handleDisconnect = () => {
+        setApiKey('');
+        setApiSecret('');
+        setIsConnected(false);
+        onDisconnect();
     };
 
     return (
         <div className="p-6 space-y-8 max-w-2xl mx-auto">
             <Card className="p-6">
                 <h3 className="text-lg font-semibold text-white mb-4">API Configuration</h3>
-                <p className="text-sm text-gray-400 mb-6">Enter your exchange API key and secret. Your keys are stored securely and never exposed.</p>
+                <p className="text-sm text-gray-400 mb-6">
+                    Enter your Bybit (or other compatible exchange) API key and secret. Your keys are stored securely and never exposed.
+                </p>
                 <div className="space-y-4">
-                    <Input label="API Key" value={apiKey} onChange={e => setApiKey(e.target.value)} />
-                    <Input label="API Secret" type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)} />
+                    <Input label="API Key" value={apiKey} onChange={e => setApiKey(e.target.value)} disabled={isConnected} />
+                    <Input label="API Secret" type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)} disabled={isConnected} />
+                    {error && <p className="text-sm text-red-400">{error}</p>}
                     <div className="pt-2 flex items-center justify-between">
-                        <Button onClick={handleSave} variant="primary">Save Changes</Button>
-                        {isSaved && <div className="flex items-center text-green-400"><CheckCircleIcon className="w-5 h-5 mr-2" /> API Keys Saved!</div>}
+                        {!isConnected ? (
+                            <Button onClick={handleVerifyAndConnect} variant="primary" disabled={isVerifying || !apiKey || !apiSecret}>
+                                <div className="flex items-center">
+                                    {isVerifying ? <LoadingIcon className="w-5 h-5 mr-2" /> : <LinkIcon className="w-5 h-5 mr-2" />}
+                                    {isVerifying ? 'Verifying...' : 'Connect & Verify'}
+                                </div>
+                            </Button>
+                        ) : (
+                             <div className="flex items-center space-x-4">
+                                <div className="flex items-center text-green-400"><CheckCircleIcon className="w-5 h-5 mr-2" /> Connected</div>
+                                <Button onClick={handleDisconnect} variant="secondary">Disconnect</Button>
+                            </div>
+                        )}
                     </div>
                 </div>
             </Card>
@@ -830,9 +898,9 @@ const Header: React.FC<{ title: string; isBotRunning: boolean; onToggleBot: () =
     </header>
 );
 
-export default function App(): React.ReactElement {
+function AppContent() {
   type View = 'dashboard' | 'trade' | 'wallet' | 'settings' | 'strategy' | 'history';
-  const [view, setView] = useState<View>('trade');
+  const [view, setView] = useState<View>('settings');
   const [isBotRunning, setIsBotRunning] = useState(false);
   const [activeScript, setActiveScript] = useState<string | null>(null);
   const [showDeploySuccess, setShowDeploySuccess] = useState(false);
@@ -904,6 +972,67 @@ export default function App(): React.ReactElement {
     
     const message = `${direction} order for ${size.toFixed(4)} ${asset.split('/')[0]} placed successfully.`;
     setShowTradeNotification(message);
+    setTimeout(() => setShowTradeNotification(null), 5000);
+  };
+
+  const handleClosePosition = (positionId: string) => {
+    const positionToClose = positions.find(p => p.id === positionId);
+    if (!positionToClose) return;
+
+    const { pnl, size, entryPrice } = positionToClose;
+    const initialCapital = entryPrice * size;
+
+    // FIX: Replaced incorrect IIFE with a clear ternary operator to calculate exit price.
+    // The original IIFE syntax was invalid and caused a type error.
+    const exitPrice = positionToClose.direction === 'LONG'
+        ? entryPrice + (pnl / size)
+        : entryPrice - (pnl / size);
+
+    const newClosedTrade: ClosedTrade = {
+        id: positionToClose.id,
+        asset: positionToClose.asset,
+        direction: positionToClose.direction,
+        entryPrice: entryPrice,
+        exitPrice: exitPrice,
+        size: size,
+        pnl: pnl,
+        openTimestamp: positionToClose.openTimestamp,
+        closeTimestamp: new Date().toISOString(),
+    };
+    setTradeHistory(prev => [newClosedTrade, ...prev].sort((a,b) => new Date(b.closeTimestamp).getTime() - new Date(a.closeTimestamp).getTime()));
+
+    setAssets(prevAssets => prevAssets.map(a => {
+        if (a.name !== 'USD') return a;
+        const updatedAsset = { ...a, inOrders: a.inOrders - initialCapital };
+        if (pnl < 0) { // Loss from capital
+            updatedAsset.available += initialCapital + pnl;
+            updatedAsset.total += pnl;
+        } else { // Profit segregated
+            updatedAsset.available += initialCapital;
+        }
+        return updatedAsset;
+    }));
+
+    if (pnl >= 0) {
+      setRealizedPnl(prev => prev + pnl);
+    }
+    
+    setPortfolioHistory(prev => {
+        const newEquityValue = (prev.equity[prev.equity.length - 1] ?? 0) + pnl;
+        const newEquity = [...prev.equity, newEquityValue].slice(-30);
+        const newTimestamps = [...prev.timestamps, new Date().toISOString()].slice(-30);
+        return { equity: newEquity, timestamps: newTimestamps };
+    });
+
+    setActivityLog(prev => [{
+        timestamp: new Date().toISOString(),
+        message: `Manually closed ${positionToClose.asset} for a ${pnl >= 0 ? 'profit' : 'loss'} of $${pnl.toFixed(2)}.`,
+        type: pnl >= 0 ? 'profit' : 'loss'
+    }, ...prev]);
+
+    setPositions(prev => prev.filter(p => p.id !== positionId));
+    
+    setShowTradeNotification(`Closed ${positionToClose.asset} position. PnL: $${pnl.toFixed(2)}.`);
     setTimeout(() => setShowTradeNotification(null), 5000);
   };
   
@@ -1009,7 +1138,7 @@ export default function App(): React.ReactElement {
                       openTimestamp: closedPosition.openTimestamp,
                       closeTimestamp: new Date().toISOString(),
                   };
-                  setTradeHistory(prev => [newClosedTrade, ...prev]);
+                  setTradeHistory(prev => [newClosedTrade, ...prev].sort((a,b) => new Date(b.closeTimestamp).getTime() - new Date(a.closeTimestamp).getTime()));
 
                   setAssets(prevAssets => prevAssets.map(a => {
                       if (a.name !== 'USD') return a;
@@ -1028,10 +1157,10 @@ export default function App(): React.ReactElement {
                   }
 
                   setPortfolioHistory(prev => {
-                      const newEquity = [...prev.equity];
-                      newEquity.push(newEquity[newEquity.length - 1] + pnl);
-                      const newTimestamps = [...prev.timestamps, new Date().toISOString()];
-                      return { equity: newEquity.slice(1), timestamps: newTimestamps.slice(1) };
+                      const newEquityValue = (prev.equity[prev.equity.length - 1] ?? 0) + pnl;
+                      const newEquity = [...prev.equity, newEquityValue].slice(-30);
+                      const newTimestamps = [...prev.timestamps, new Date().toISOString()].slice(-30);
+                      return { equity: newEquity, timestamps: newTimestamps };
                   });
                   
                   setActivityLog(prev => [{
@@ -1095,7 +1224,7 @@ export default function App(): React.ReactElement {
     };
 
     switch (view) {
-      case 'dashboard': return <DashboardView history={portfolioHistory} positions={positions} realizedPnl={realizedPnl} assets={assets} />;
+      case 'dashboard': return <DashboardView history={portfolioHistory} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleClosePosition} />;
       case 'trade': return <TradeView 
                             data={tradeViewData} 
                             onExecuteTrade={handleExecuteTrade} 
@@ -1108,11 +1237,11 @@ export default function App(): React.ReactElement {
                             onGetSuggestion={handleGetSuggestion}
                             aiSuggestion={aiSuggestion}
                           />;
-      case 'wallet': return <WalletView assets={assets} />;
-      case 'settings': return <SettingsView />;
+      case 'wallet': return <WalletView assets={assets} setView={setView as (view:string) => void} />;
+      case 'settings': return <SettingsView onConnectSuccess={setAssets} onDisconnect={() => setAssets(MOCK_ASSETS)} />;
       case 'strategy': return <StrategyView onDeployScript={handleDeployScript} />;
       case 'history': return <HistoryView trades={tradeHistory} />;
-      default: return <DashboardView history={portfolioHistory} positions={positions} realizedPnl={realizedPnl} assets={assets} />;
+      default: return <DashboardView history={portfolioHistory} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleClosePosition} />;
     }
   };
 
@@ -1158,4 +1287,12 @@ export default function App(): React.ReactElement {
       </div>
     </div>
   );
+}
+
+export default function App(): React.ReactElement {
+    return (
+        <APIProvider>
+            <AppContent />
+        </APIProvider>
+    );
 }

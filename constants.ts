@@ -14,6 +14,7 @@ export const MOCK_ASSETS: Asset[] = [
   { name: 'Bitcoin (BTC)', total: 0.05, available: 0.05, inOrders: 0, usdValue: 3450.75 },
   { name: 'Ethereum (ETH)', total: 0.5, available: 0.2, inOrders: 0.3, usdValue: 1845.25 },
   { name: 'Solana (SOL)', total: 10, available: 10, inOrders: 0, usdValue: 1624.00 },
+  { name: 'Naira (NGN)', total: 0, available: 0, inOrders: 0, usdValue: 0 },
 ];
 
 export const MOCK_POSITIONS: Position[] = [
@@ -23,10 +24,10 @@ export const MOCK_POSITIONS: Position[] = [
 ];
 
 const generateCandleData = (basePrice: number, points: number, volatility: number): PriceData => {
-    const prices: number[] = [basePrice];
-    const timestamps: string[] = [new Date().toISOString()];
+    const prices: number[] = [];
+    const timestamps: string[] = [];
     let currentPrice = basePrice;
-    for (let i = 1; i < points; i++) {
+    for (let i = 0; i < points; i++) {
         const change = (Math.random() - 0.5) * (currentPrice * volatility);
         currentPrice += change;
         prices.unshift(currentPrice);
@@ -53,6 +54,12 @@ export const MOCK_TRADE_VIEW_DATA: TradeViewData = {
         '15m': generateCandleData(162.40, 96, 0.0015),
         '1h': generateCandleData(162.40, 24, 0.003),
         '4h': generateCandleData(162.40, 30, 0.008),
+    },
+    'NGN/USD': {
+        '5m': generateCandleData(0.00067, 288, 0.0009),
+        '15m': generateCandleData(0.00067, 96, 0.0018),
+        '1h': generateCandleData(0.00067, 24, 0.0035),
+        '4h': generateCandleData(0.00067, 30, 0.009),
     },
 };
 
