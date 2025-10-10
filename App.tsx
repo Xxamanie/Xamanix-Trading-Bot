@@ -1441,33 +1441,13 @@ function AppContent() {
                 
                 try {
                     addNotification(`Initiating transfer of $${amountToWithdraw.toFixed(2)}...`, 'info');
+                    
+                    // Call the API to perform the transfer, which updates the "backend" balance
                     await transferFunds(amountToWithdraw, 'USDT');
-
-                    setAssets(prevAssets => {
-                        const assetsCopy = [...prevAssets];
-                        const stablecoinIndex = assetsCopy.findIndex(a => a.name === 'USDT' || a.name === 'USD');
-
-                        if (stablecoinIndex !== -1) {
-                            // Update existing stablecoin asset immutably
-                            assetsCopy[stablecoinIndex] = {
-                                ...assetsCopy[stablecoinIndex],
-                                total: assetsCopy[stablecoinIndex].total + amountToWithdraw,
-                                available: assetsCopy[stablecoinIndex].available + amountToWithdraw,
-                                usdValue: assetsCopy[stablecoinIndex].usdValue + amountToWithdraw,
-                            };
-                            return assetsCopy;
-                        } else {
-                            // Add new USDT asset if no stablecoin exists
-                            const newStablecoin: Asset = {
-                                name: 'USDT',
-                                total: amountToWithdraw,
-                                available: amountToWithdraw,
-                                inOrders: 0,
-                                usdValue: amountToWithdraw,
-                            };
-                            return [...assetsCopy, newStablecoin];
-                        }
-                    });
+                    
+                    // Refetch the balances from the API to get the updated source of truth
+                    const updatedAssets = await verifyAndFetchBalances(apiKey, apiSecret);
+                    setAssets(updatedAssets);
 
                     setRealizedPnl(0);
 
