@@ -1,3 +1,4 @@
+
 export interface Asset {
   name: string;
   total: number;
@@ -81,4 +82,14 @@ export interface BacktestResult {
     summary: BacktestSummary;
     equity_curve_csv: string;
     error?: string;
+}
+
+export interface UserSubmission {
+  id: string;
+  type: 'comment' | 'complaint';
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  timestamp: string;
 }

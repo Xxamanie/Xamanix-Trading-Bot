@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade } from './types';
+import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission } from './types';
 import { MOCK_PORTFOLIO_HISTORY, MOCK_ASSETS, MOCK_POSITIONS, MOCK_TRADE_VIEW_DATA, DEFAULT_SCRIPT } from './constants';
-import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, SunIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon } from './components/icons';
+import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, SunIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon } from './components/icons';
 import RecommendationsPanel from './components/RecommendationsPanel';
 import BacktestResults from './components/BacktestResults';
 import CodeViewer from './components/CodeViewer';
@@ -26,12 +26,12 @@ const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ chi
   </div>
 );
 
-const Button: React.FC<{ children: React.ReactNode; onClick?: () => void; variant?: 'primary' | 'secondary'; className?: string; disabled?: boolean; }> = ({ children, onClick, variant = 'secondary', className = '', disabled = false }) => {
+const Button: React.FC<{ children: React.ReactNode; onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void; type?: 'button' | 'submit' | 'reset'; variant?: 'primary' | 'secondary'; className?: string; disabled?: boolean; }> = ({ children, onClick, type = 'button', variant = 'secondary', className = '', disabled = false }) => {
   const baseClasses = 'px-4 py-2 rounded-md font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed';
   const variantClasses = variant === 'primary'
     ? 'bg-cyan-500 text-white hover:bg-cyan-600 focus:ring-cyan-500'
     : 'bg-gray-700 text-gray-200 hover:bg-gray-600 focus:ring-gray-500';
-  return <button onClick={onClick} disabled={disabled} className={`${baseClasses} ${variantClasses} ${className}`}>{children}</button>;
+  return <button type={type} onClick={onClick} disabled={disabled} className={`${baseClasses} ${variantClasses} ${className}`}>{children}</button>;
 };
 
 const ToggleSwitch: React.FC<{ isEnabled: boolean; onToggle: () => void; isDisabled?: boolean; }> = ({ isEnabled, onToggle, isDisabled = false }) => (
@@ -45,7 +45,7 @@ const ToggleSwitch: React.FC<{ isEnabled: boolean; onToggle: () => void; isDisab
   </button>
 );
 
-const Input: React.FC<{ label: string; type?: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder?: string, leadingAddon?: string; disabled?: boolean; }> = ({ label, type = "text", value, onChange, placeholder, leadingAddon, disabled = false }) => (
+const Input: React.FC<{ label: string; type?: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder?: string, leadingAddon?: string; disabled?: boolean; name?: string; }> = ({ label, type = "text", value, onChange, placeholder, leadingAddon, disabled = false, name }) => (
     <div>
         <label className="block text-sm font-medium text-gray-400 mb-1">{label}</label>
         <div className="relative">
@@ -56,6 +56,7 @@ const Input: React.FC<{ label: string; type?: string; value: string; onChange: (
             )}
             <input
                 type={type}
+                name={name}
                 value={value}
                 onChange={onChange}
                 placeholder={placeholder}
@@ -63,6 +64,20 @@ const Input: React.FC<{ label: string; type?: string; value: string; onChange: (
                 className={`w-full bg-gray-700 border border-gray-600 rounded-md py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 ${leadingAddon ? 'pl-7' : 'px-3'} disabled:bg-gray-800 disabled:cursor-not-allowed`}
             />
         </div>
+    </div>
+);
+
+const Textarea: React.FC<{ label: string; value: string; onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void; placeholder?: string; rows?: number; name?: string; }> = ({ label, value, onChange, placeholder, rows = 4, name }) => (
+    <div>
+        <label className="block text-sm font-medium text-gray-400 mb-1">{label}</label>
+        <textarea
+            name={name}
+            value={value}
+            onChange={onChange}
+            placeholder={placeholder}
+            rows={rows}
+            className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 resize-y"
+        />
     </div>
 );
 
@@ -768,7 +783,7 @@ const StrategyView: React.FC<{ onDeployScript: (code: string) => void }> = ({ on
     );
 };
 
-const HistoryView: React.FC<{ trades: ClosedTrade[] }> = ({ trades }) => {
+const HistoryView: React.FC<{ trades: ClosedTrade[], positions: Position[] }> = ({ trades, positions }) => {
     const totalTrades = trades.length;
     const tradesWon = trades.filter(t => t.pnl > 0).length;
     const tradesLost = totalTrades - tradesWon;
@@ -778,7 +793,7 @@ const HistoryView: React.FC<{ trades: ClosedTrade[] }> = ({ trades }) => {
     const winRate = totalTrades > 0 ? (tradesWon / totalTrades) * 100 : 0;
 
     const stats = [
-        { label: 'Total Trades', value: totalTrades },
+        { label: 'Total Closed', value: totalTrades },
         { label: 'Trades Won', value: tradesWon },
         { label: 'Trades Lost', value: tradesLost },
         { label: 'Win Rate', value: `${winRate.toFixed(2)}%` },
@@ -786,54 +801,254 @@ const HistoryView: React.FC<{ trades: ClosedTrade[] }> = ({ trades }) => {
         { label: 'Total Lost', value: `$${Math.abs(totalLost).toFixed(2)}`, color: 'text-red-400' },
         { label: 'Net Profit', value: `${netProfit >= 0 ? '+' : '-'}$${Math.abs(netProfit).toFixed(2)}`, color: netProfit >= 0 ? 'text-green-400' : 'text-red-400' },
     ];
+
+    const allTradeItems = [
+        ...positions.map(p => ({
+            id: p.id,
+            asset: p.asset,
+            direction: p.direction,
+            entryPrice: p.entryPrice,
+            exitPrice: null,
+            size: p.size,
+            pnl: p.pnl,
+            openTimestamp: p.openTimestamp,
+            closeTimestamp: null,
+            status: 'Open',
+        })),
+        ...trades.map(t => ({
+            ...t,
+            status: 'Closed',
+        }))
+    ].sort((a, b) => new Date(b.openTimestamp).getTime() - new Date(a.openTimestamp).getTime());
     
     return (
         <div className="p-6 space-y-6">
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-                {stats.map(stat => (
-                    <Card key={stat.label} className="p-4 text-center">
-                        <p className="text-sm text-gray-400">{stat.label}</p>
-                        <p className={`text-2xl font-bold ${stat.color || 'text-white'}`}>{stat.value}</p>
-                    </Card>
-                ))}
-            </div>
             <Card>
-                <h3 className="text-lg font-semibold text-white p-4 border-b border-gray-700">Trade Log</h3>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead className="text-xs text-gray-400 uppercase bg-gray-800">
-                            <tr>
-                                <th className="px-6 py-3">Asset</th>
-                                <th className="px-6 py-3">Direction</th>
-                                <th className="px-6 py-3">Size</th>
-                                <th className="px-6 py-3">Entry Price</th>
-                                <th className="px-6 py-3">Exit Price</th>
-                                <th className="px-6 py-3">PnL</th>
-                                <th className="px-6 py-3">Opened</th>
-                                <th className="px-6 py-3">Closed</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {trades.length > 0 ? trades.map(trade => (
-                                <tr key={trade.id} className="border-b border-gray-700 hover:bg-gray-800/70 transition-colors">
-                                    <td className="px-6 py-4 font-semibold text-white">{trade.asset}</td>
-                                    <td className={`px-6 py-4 font-semibold ${trade.direction === 'LONG' ? 'text-green-400' : 'text-red-400'}`}>{trade.direction}</td>
-                                    <td className="px-6 py-4">{trade.size.toFixed(6)}</td>
-                                    <td className="px-6 py-4">${trade.entryPrice.toLocaleString()}</td>
-                                    <td className="px-6 py-4">${trade.exitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                    <td className={`px-6 py-4 font-semibold ${trade.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                        {trade.pnl >= 0 ? '+' : '-'}${Math.abs(trade.pnl).toFixed(2)}
-                                    </td>
-                                    <td className="px-6 py-4 text-sm text-gray-400">{new Date(trade.openTimestamp).toLocaleString()}</td>
-                                    <td className="px-6 py-4 text-sm text-gray-400">{new Date(trade.closeTimestamp).toLocaleString()}</td>
-                                </tr>
-                            )) : (
+                <div className="p-4">
+                    <h3 className="text-lg font-semibold text-white mb-3">Performance Summary (Closed Trades)</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+                        {stats.map(stat => (
+                            <div key={stat.label} className="bg-gray-900/70 p-4 rounded-lg text-center">
+                                <p className="text-sm text-gray-400">{stat.label}</p>
+                                <p className={`text-xl font-bold ${stat.color || 'text-white'}`}>{stat.value}</p>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                <div className="border-t border-gray-700">
+                    <h3 className="text-lg font-semibold text-white p-4">Trade Log (All Trades)</h3>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                            <thead className="text-xs text-gray-400 uppercase bg-gray-800">
                                 <tr>
-                                    <td colSpan={8} className="text-center py-12 text-gray-500">No closed trades yet.</td>
+                                    <th className="px-6 py-3">Asset</th>
+                                    <th className="px-6 py-3">Direction</th>
+                                    <th className="px-6 py-3">Size</th>
+                                    <th className="px-6 py-3">Entry Price</th>
+                                    <th className="px-6 py-3">Exit Price</th>
+                                    <th className="px-6 py-3">PnL</th>
+                                    <th className="px-6 py-3">Opened</th>
+                                    <th className="px-6 py-3">Closed</th>
+                                    <th className="px-6 py-3">Status</th>
                                 </tr>
-                            )}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {allTradeItems.length > 0 ? allTradeItems.map(trade => (
+                                    <tr key={trade.id} className="border-b border-gray-700 last:border-b-0 hover:bg-gray-800/70 transition-colors">
+                                        <td className="px-6 py-4 font-semibold text-white">{trade.asset}</td>
+                                        <td className={`px-6 py-4 font-semibold ${trade.direction === 'LONG' ? 'text-green-400' : 'text-red-400'}`}>{trade.direction}</td>
+                                        <td className="px-6 py-4">{trade.size.toFixed(6)}</td>
+                                        <td className="px-6 py-4">${trade.entryPrice.toLocaleString()}</td>
+                                        <td className="px-6 py-4">
+                                            {trade.exitPrice ? `$${trade.exitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-gray-500">--</span>}
+                                        </td>
+                                        <td className={`px-6 py-4 font-semibold ${trade.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                            {trade.pnl >= 0 ? '+' : '-'}${Math.abs(trade.pnl).toFixed(2)}
+                                        </td>
+                                        <td className="px-6 py-4 text-sm text-gray-400">{new Date(trade.openTimestamp).toLocaleString()}</td>
+                                        <td className="px-6 py-4 text-sm text-gray-400">
+                                            {trade.closeTimestamp ? new Date(trade.closeTimestamp).toLocaleString() : <span className="text-gray-500">--</span>}
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <span className={`inline-block text-center min-w-[64px] px-2 py-1 text-xs font-semibold rounded-full ${
+                                                trade.status === 'Open' 
+                                                ? 'bg-cyan-500/20 text-cyan-300' 
+                                                : (trade.pnl >= 0 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400')
+                                            }`}>
+                                                {trade.status}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                )) : (
+                                    <tr>
+                                        <td colSpan={9} className="text-center py-12 text-gray-500">No trades yet.</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </Card>
+        </div>
+    );
+};
+
+const AboutView: React.FC = () => (
+    <div className="p-6 max-w-4xl mx-auto">
+        <Card className="p-8">
+            <div className="text-center mb-8">
+                 <ArrowTrendingUpIcon className="w-12 h-12 mx-auto text-cyan-400"/>
+                 <h2 className="text-3xl font-bold text-white mt-4">About Xamanix Trading Bot</h2>
+                 <p className="text-lg text-gray-400 mt-2">Your AI-Powered Partner in Algorithmic Trading</p>
+            </div>
+
+            <div className="space-y-6 text-gray-300">
+                <p>
+                    Xamanix is a sophisticated, AI-driven platform designed to empower both novice and experienced traders by transforming their Python trading scripts into more robust, efficient, and profitable strategies. We bridge the gap between a great idea and a market-ready trading bot.
+                </p>
+                <p>
+                    By harnessing the advanced analytical capabilities of Google's Gemini API, Xamanix provides a suite of tools to dissect, refine, and validate your trading logic. Our platform automates the tedious process of code review and enhancement, allowing you to focus on what truly matters: crafting winning strategies.
+                </p>
+
+                <div className="pt-4">
+                    <h3 className="text-xl font-semibold text-white mb-4">Key Features</h3>
+                    <ul className="grid grid-cols-1 md:grid-cols-2 gap-4 list-inside">
+                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>AI Script Analysis:</strong> Get deep insights into your strategy's parameters and logic.</span></li>
+                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Intelligent Recommendations:</strong> Receive actionable suggestions for improving risk management, signal confirmation, and more.</span></li>
+                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>One-Click Backtesting:</strong> Instantly run detailed backtests on both original and AI-enhanced scripts.</span></li>
+                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Seamless Deployment:</strong> Deploy your optimized strategy to a simulated live environment with a single click.</span></li>
+                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Real-Time Monitoring:</strong> Keep track of your bot's performance, open positions, and PnL through an intuitive dashboard.</span></li>
+                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Exchange Integration:</strong> Connect securely to your exchange account to manage your portfolio.</span></li>
+                    </ul>
+                </div>
+            </div>
+        </Card>
+    </div>
+);
+
+const ContactView: React.FC<{ onFormSubmit: (submission: Omit<UserSubmission, 'id' | 'timestamp'>) => void }> = ({ onFormSubmit }) => {
+    const [formState, setFormState] = useState({ name: '', email: '', subject: '', message: '' });
+    const [type, setType] = useState<'comment' | 'complaint'>('comment');
+    const [isSubmitted, setIsSubmitted] = useState(false);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        const { name, value } = e.target;
+        setFormState(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onFormSubmit({ ...formState, type });
+        setFormState({ name: '', email: '', subject: '', message: '' });
+        setType('comment');
+        setIsSubmitted(true);
+    };
+
+    if (isSubmitted) {
+        return (
+            <div className="p-6 flex items-center justify-center h-full text-center">
+                <Card className="p-8 max-w-md">
+                    <CheckCircleIcon className="w-12 h-12 mx-auto text-green-400" />
+                    <h3 className="text-xl font-bold text-white mt-4">Thank You!</h3>
+                    <p className="text-gray-400 mt-2 mb-6">
+                        Your message has been sent successfully. Our team will get back to you as soon as possible.
+                    </p>
+                    <Button onClick={() => setIsSubmitted(false)}>
+                        Send Another Message
+                    </Button>
+                </Card>
+            </div>
+        );
+    }
+    
+    return (
+        <div className="p-6 max-w-2xl mx-auto">
+            <Card className="p-8">
+                <h2 className="text-2xl font-bold text-white mb-2">Contact Us</h2>
+                <p className="text-gray-400 mb-6">
+                    Have a question, feedback, or need support? Fill out the form below and we'll get back to you.
+                </p>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="space-y-1">
+                        <label className="block text-sm font-medium text-gray-400">Message Type</label>
+                        <div className="flex space-x-4">
+                            <label className="flex items-center">
+                                <input type="radio" name="type" value="comment" checked={type === 'comment'} onChange={() => setType('comment')} className="h-4 w-4 text-cyan-600 bg-gray-700 border-gray-600 focus:ring-cyan-500" />
+                                <span className="ml-2 text-gray-300">General Comment</span>
+                            </label>
+                            <label className="flex items-center">
+                                <input type="radio" name="type" value="complaint" checked={type === 'complaint'} onChange={() => setType('complaint')} className="h-4 w-4 text-cyan-600 bg-gray-700 border-gray-600 focus:ring-cyan-500" />
+                                <span className="ml-2 text-gray-300">Private Complaint</span>
+                            </label>
+                        </div>
+                    </div>
+                    <Input label="Your Name" name="name" value={formState.name} onChange={handleChange} placeholder="John Doe" />
+                    <Input label="Your Email" name="email" type="email" value={formState.email} onChange={handleChange} placeholder="you@example.com" />
+                    <Input label="Subject" name="subject" value={formState.subject} onChange={handleChange} placeholder="Regarding my strategy..." />
+                    <Textarea label="Message" name="message" value={formState.message} onChange={handleChange} placeholder="Your message here..." />
+                    <div className="pt-2">
+                        <Button type="submit" variant="primary" className="w-full">
+                            Send Message
+                        </Button>
+                    </div>
+                </form>
+            </Card>
+        </div>
+    );
+};
+
+const AdminView: React.FC<{ submissions: UserSubmission[] }> = ({ submissions }) => {
+    const [activeTab, setActiveTab] = useState<'complaint' | 'comment'>('complaint');
+
+    const filteredSubmissions = submissions.filter(s => s.type === activeTab);
+
+    return (
+        <div className="p-6 max-w-5xl mx-auto space-y-6">
+            <Card className="p-6">
+                <h2 className="text-2xl font-bold text-white mb-4">Admin Panel: User Feedback</h2>
+                <div className="border-b border-gray-700">
+                    <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                        {['complaint', 'comment'].map((tab) => (
+                            <button
+                                key={tab}
+                                onClick={() => setActiveTab(tab as 'complaint' | 'comment')}
+                                className={`${
+                                    activeTab === tab
+                                        ? 'border-cyan-400 text-cyan-400'
+                                        : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'
+                                } whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm capitalize`}
+                            >
+                                {tab}s ({submissions.filter(s => s.type === tab).length})
+                            </button>
+                        ))}
+                    </nav>
+                </div>
+
+                <div className="mt-6">
+                    {filteredSubmissions.length === 0 ? (
+                        <div className="text-center py-16">
+                             <p className="text-gray-500">There are currently no {activeTab}s.</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            {filteredSubmissions.map(sub => (
+                                <Card key={sub.id} className="p-4 !bg-gray-900/50">
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <p className="text-lg font-semibold text-white">{sub.subject}</p>
+                                            <p className="text-sm text-gray-400">
+                                                From: <a href={`mailto:${sub.email}`} className="text-cyan-400 hover:underline">{sub.name}</a>
+                                            </p>
+                                        </div>
+                                        <p className="text-xs text-gray-500 flex-shrink-0 ml-4">{new Date(sub.timestamp).toLocaleString()}</p>
+                                    </div>
+                                    <div className="mt-4 pt-4 border-t border-gray-700">
+                                        <p className="text-gray-300 whitespace-pre-wrap">{sub.message}</p>
+                                    </div>
+                                </Card>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </Card>
         </div>
@@ -854,23 +1069,26 @@ const NavItem: React.FC<{ icon: React.ReactNode; label: string; isActive: boolea
 
 const Sidebar: React.FC<{ currentView: string; setView: (view: string) => void }> = ({ currentView, setView }) => (
   <aside className="w-64 bg-gray-900/70 border-r border-gray-800 p-4 flex flex-col">
-    <div className="text-2xl font-bold text-white mb-10 px-2 flex items-center">
-      <ArrowTrendingUpIcon className="w-8 h-8 mr-2 text-cyan-400"/>
-      Xamanix
+    <div>
+        <div className="text-2xl font-bold text-white mb-10 px-2 flex items-center">
+          <ArrowTrendingUpIcon className="w-8 h-8 mr-2 text-cyan-400"/>
+          Xamanix
+        </div>
+        <nav className="space-y-2">
+          <NavItem icon={<DashboardIcon />} label="Dashboard" isActive={currentView === 'dashboard'} onClick={() => setView('dashboard')} />
+          <NavItem icon={<TradeIcon />} label="Trade" isActive={currentView === 'trade'} onClick={() => setView('trade')} />
+          <NavItem icon={<ChartBarIcon />} label="Strategy" isActive={currentView === 'strategy'} onClick={() => setView('strategy')} />
+          <NavItem icon={<HistoryIcon />} label="History" isActive={currentView === 'history'} onClick={() => setView('history')} />
+          <NavItem icon={<WalletIcon />} label="Wallet" isActive={currentView === 'wallet'} onClick={() => setView('wallet')} />
+        </nav>
     </div>
-    <nav className="space-y-2">
-      <NavItem icon={<DashboardIcon />} label="Dashboard" isActive={currentView === 'dashboard'} onClick={() => setView('dashboard')} />
-      <NavItem icon={<TradeIcon />} label="Trade" isActive={currentView === 'trade'} onClick={() => setView('trade')} />
-      <NavItem icon={<ChartBarIcon />} label="Strategy" isActive={currentView === 'strategy'} onClick={() => setView('strategy')} />
-      <NavItem icon={<HistoryIcon />} label="History" isActive={currentView === 'history'} onClick={() => setView('history')} />
-      <NavItem icon={<WalletIcon />} label="Wallet" isActive={currentView === 'wallet'} onClick={() => setView('wallet')} />
-      <NavItem icon={<SettingsIcon />} label="Settings" isActive={currentView === 'settings'} onClick={() => setView('settings')} />
-    </nav>
     <div className="mt-auto">
-        <Card className="p-4 text-center">
-            <p className="text-sm text-gray-400">Upgrade to Pro for advanced analytics and unlimited strategies.</p>
-            <Button variant="primary" className="w-full mt-4">Upgrade Now</Button>
-        </Card>
+        <nav className="space-y-2 border-t border-gray-700 pt-4">
+            <NavItem icon={<AboutIcon />} label="About Us" isActive={currentView === 'about'} onClick={() => setView('about')} />
+            <NavItem icon={<ContactIcon />} label="Contact Us" isActive={currentView === 'contact'} onClick={() => setView('contact')} />
+            <NavItem icon={<AdminIcon />} label="Admin Panel" isActive={currentView === 'admin'} onClick={() => setView('admin')} />
+            <NavItem icon={<SettingsIcon />} label="Settings" isActive={currentView === 'settings'} onClick={() => setView('settings')} />
+        </nav>
     </div>
   </aside>
 );
@@ -899,8 +1117,8 @@ const Header: React.FC<{ title: string; isBotRunning: boolean; onToggleBot: () =
 );
 
 function AppContent() {
-  type View = 'dashboard' | 'trade' | 'wallet' | 'settings' | 'strategy' | 'history';
-  const [view, setView] = useState<View>('settings');
+  type View = 'dashboard' | 'trade' | 'wallet' | 'settings' | 'strategy' | 'history' | 'about' | 'contact' | 'admin';
+  const [view, setView] = useState<View>('dashboard');
   const [isBotRunning, setIsBotRunning] = useState(false);
   const [activeScript, setActiveScript] = useState<string | null>(null);
   const [showDeploySuccess, setShowDeploySuccess] = useState(false);
@@ -915,6 +1133,7 @@ function AppContent() {
   const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
   const [aiSuggestion, setAiSuggestion] = useState({ suggestion: '', isLoading: false, error: null as string | null });
   const [tradeHistory, setTradeHistory] = useState<ClosedTrade[]>([]);
+  const [userSubmissions, setUserSubmissions] = useState<UserSubmission[]>([]);
   
   const handleDeployScript = (code: string) => {
     setActiveScript(code);
@@ -1079,6 +1298,15 @@ function AppContent() {
     }
   };
 
+  const handleContactSubmit = (submission: Omit<UserSubmission, 'id' | 'timestamp'>) => {
+    const newSubmission: UserSubmission = {
+      ...submission,
+      id: Date.now().toString(),
+      timestamp: new Date().toISOString(),
+    };
+    setUserSubmissions(prev => [newSubmission, ...prev]);
+  };
+
   useEffect(() => {
     const logEntry = activityLog.length > 0 ? activityLog[0].message : '';
     if (isBotRunning && activeScript && !logEntry.startsWith('AI Strategy started')) {
@@ -1178,7 +1406,7 @@ function AppContent() {
                   const TRADE_SIZE_USD = 500;
                   
                   if (usdBalance >= TRADE_SIZE_USD) {
-                      const assetsList = ['BTC/USD', 'ETH/USD', 'SOL/USD'];
+                      const assetsList = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'NGN/USD'];
                       const asset = assetsList[Math.floor(Math.random() * assetsList.length)];
                       const direction = Math.random() > 0.5 ? 'LONG' : 'SHORT';
                       const entryPrice = MOCK_TRADE_VIEW_DATA[asset]['15m'].prices[0] * (1 + (Math.random() - 0.5) * 0.001);
@@ -1240,7 +1468,10 @@ function AppContent() {
       case 'wallet': return <WalletView assets={assets} setView={setView as (view:string) => void} />;
       case 'settings': return <SettingsView onConnectSuccess={setAssets} onDisconnect={() => setAssets(MOCK_ASSETS)} />;
       case 'strategy': return <StrategyView onDeployScript={handleDeployScript} />;
-      case 'history': return <HistoryView trades={tradeHistory} />;
+      case 'history': return <HistoryView trades={tradeHistory} positions={positions} />;
+      case 'about': return <AboutView />;
+      case 'contact': return <ContactView onFormSubmit={handleContactSubmit} />;
+      case 'admin': return <AdminView submissions={userSubmissions} />;
       default: return <DashboardView history={portfolioHistory} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleClosePosition} />;
     }
   };
