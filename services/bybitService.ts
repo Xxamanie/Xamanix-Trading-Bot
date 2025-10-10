@@ -5,7 +5,7 @@ import type { Asset } from '../types';
 // and include proper request signing with the API key and secret.
 
 const MOCK_REAL_BALANCES: Asset[] = [
-  { name: 'USDT', total: 10520.75, available: 8300.50, inOrders: 2220.25, usdValue: 10520.75 },
+  { name: 'USDT', total: 500000.00, available: 480000.00, inOrders: 20000.00, usdValue: 500000.00 },
   { name: 'Bitcoin (BTC)', total: 0.25, available: 0.20, inOrders: 0.05, usdValue: 17253.75 },
   { name: 'Ethereum (ETH)', total: 2.5, available: 2.5, inOrders: 0, usdValue: 9226.25 },
 ];

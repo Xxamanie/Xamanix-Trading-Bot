@@ -3,14 +3,14 @@ import type { PortfolioHistory, Asset, Position, TradeViewData, PriceData } from
 export const MOCK_PORTFOLIO_HISTORY: PortfolioHistory = {
   timestamps: Array.from({ length: 30 }, (_, i) => new Date(Date.now() - (29 - i) * 24 * 60 * 60 * 1000).toISOString()),
   equity: [
-    10000, 10050, 10100, 10080, 10150, 10200, 10250, 10300, 10280, 10350,
-    10400, 10450, 10500, 10480, 10550, 10600, 10650, 10700, 10680, 10750,
-    10800, 10850, 10900, 10880, 10950, 11000, 11050, 11100, 11080, 11150
+    495276, 496150, 496847, 496690, 497677, 498308, 499156, 500139, 499540, 500742,
+    501308, 502012, 502750, 502574, 503728, 504153, 505307, 505877, 505436, 506727,
+    507425, 508200, 508735, 508795, 509930, 510526, 511520, 512211, 511736, 512880
   ],
 };
 
 export const MOCK_ASSETS: Asset[] = [
-  { name: 'USD', total: 5230.50, available: 4100.30, inOrders: 1130.20, usdValue: 5230.50 },
+  { name: 'USD', total: 500000.00, available: 495000.00, inOrders: 5000.00, usdValue: 500000.00 },
   { name: 'Bitcoin (BTC)', total: 0.05, available: 0.05, inOrders: 0, usdValue: 3450.75 },
   { name: 'Ethereum (ETH)', total: 0.5, available: 0.2, inOrders: 0.3, usdValue: 1845.25 },
   { name: 'Solana (SOL)', total: 10, available: 10, inOrders: 0, usdValue: 1624.00 },

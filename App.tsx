@@ -87,9 +87,9 @@ const DashboardView: React.FC<{ history: PortfolioHistory; positions: Position[]
     const chartRef = useRef<HTMLCanvasElement | null>(null);
     const chartInstance = useRef<any | null>(null);
 
-    const usdBalance = assets.find(a => a.name === 'USD')?.total ?? 0;
+    const totalAssetsValue = assets.reduce((sum, asset) => sum + asset.usdValue, 0);
     const openPnl = positions.reduce((acc, pos) => acc + pos.pnl, 0);
-    const totalValue = usdBalance + openPnl + realizedPnl;
+    const totalValue = totalAssetsValue + openPnl;
     const yesterdaysValue = history.equity[history.equity.length - 2] ?? totalValue;
     const todaysChange = totalValue - yesterdaysValue;
     const todaysChangePct = yesterdaysValue !== 0 ? (todaysChange / yesterdaysValue) * 100 : 0;
@@ -1253,7 +1253,7 @@ function AppContent() {
     const [titleClickCount, setTitleClickCount] = useState(0);
     const titleClickTimer = useRef<number | null>(null);
     const [notifications, setNotifications] = useState<Notification[]>([]);
-    const { isConnected, setIsConnected } = useAPI();
+    const { isConnected, setIsConnected, apiKey, apiSecret } = useAPI();
     const [aiSuggestion, setAiSuggestion] = useState({ suggestion: '', isLoading: false, error: null as string | null });
 
     const getIconForType = (type: Notification['type']): React.ReactElement => {
@@ -1278,6 +1278,28 @@ function AppContent() {
     const logActivity = (message: string, type: ActivityLogEntry['type']) => {
         setActivityLog(prev => [...prev, { timestamp: new Date().toISOString(), message, type }]);
     };
+
+    // Effect to re-verify connection on app load
+    useEffect(() => {
+        const validateAndFetchOnLoad = async () => {
+            // Only run if localStorage indicates a connection
+            if (isConnected && apiKey && apiSecret) {
+                try {
+                    const fetchedAssets = await verifyAndFetchBalances(apiKey, apiSecret);
+                    setAssets(fetchedAssets);
+                    addNotification("Reconnected to exchange successfully.", 'info');
+                } catch (e: any) {
+                    console.error("Failed to reconnect with stored credentials:", e.message);
+                    // If keys are no longer valid, disconnect the session in context and revert data
+                    setIsConnected(false); 
+                    setAssets(MOCK_ASSETS);
+                    addNotification("Failed to reconnect with stored API keys. Please verify.", 'error');
+                }
+            }
+        };
+
+        validateAndFetchOnLoad();
+    }, []); // Empty dependency array ensures this runs only once on mount
     
     const handleDeployScript = (code: string) => {
         setIsDeployable(true);
@@ -1316,7 +1338,7 @@ function AppContent() {
         addNotification(`Trade executed: ${details.direction} ${details.asset}`, 'success');
     };
     
-    const handleManualClosePosition = (positionId: string) => {
+    const handleClosePosition = (positionId: string, source: 'Manual' | 'AI' = 'Manual') => {
         const posToClose = positions.find(p => p.id === positionId);
         if (!posToClose) return;
 
@@ -1338,7 +1360,12 @@ function AppContent() {
         setClosedTrades(prev => [...prev, newClosedTrade]);
         setPositions(prev => prev.filter(p => p.id !== positionId));
         setRealizedPnl(prev => prev + pnl);
-        logActivity(`Position closed for ${posToClose.asset}. PnL: $${pnl.toFixed(2)}.`, pnl >= 0 ? 'profit' : 'loss');
+
+        const logMessage = source === 'AI' 
+            ? `AI closed ${posToClose.asset} position. PnL: $${pnl.toFixed(2)}.`
+            : `Position closed for ${posToClose.asset}. PnL: $${pnl.toFixed(2)}.`;
+        
+        logActivity(logMessage, pnl >= 0 ? 'profit' : 'loss');
         addNotification(`Closed ${posToClose.asset} position for $${pnl.toFixed(2)} PnL.`, 'info');
     };
     
@@ -1408,6 +1435,53 @@ function AppContent() {
         }
     }, [view]);
     
+    // AI Bot Trading Simulation Logic
+    useEffect(() => {
+        let botInterval: number | null = null;
+    
+        const simulateBotAction = () => {
+            const shouldClose = Math.random() < 0.3 && positions.length > 0;
+            const maxPositions = 5; // As defined in settings view
+    
+            if (shouldClose) {
+                // Close a random existing position
+                const posToClose = positions[Math.floor(Math.random() * positions.length)];
+                handleClosePosition(posToClose.id, 'AI');
+            } else if (positions.length < maxPositions) {
+                // Open a new position
+                const markets = Object.keys(MOCK_TRADE_VIEW_DATA).filter(m => m !== 'NGN/USD');
+                const asset = markets[Math.floor(Math.random() * markets.length)];
+                const direction = Math.random() < 0.5 ? 'LONG' : 'SHORT';
+                const amountUSD = Math.floor(Math.random() * (500 - 50 + 1)) + 50; // Random amount: $50-$500
+    
+                const newPosition: Position = {
+                    id: `pos-${Date.now()}`,
+                    asset: asset,
+                    direction: direction,
+                    entryPrice: MOCK_TRADE_VIEW_DATA[asset]['15m'].prices.slice(-1)[0],
+                    size: amountUSD / MOCK_TRADE_VIEW_DATA[asset]['15m'].prices.slice(-1)[0],
+                    pnl: 0,
+                    pnlPercent: 0,
+                    openTimestamp: new Date().toISOString(),
+                    seen: false,
+                };
+                setPositions(prev => [...prev, newPosition]);
+                logActivity(`AI opened ${direction} on ${asset} for $${amountUSD.toFixed(2)}.`, 'trade');
+            }
+        };
+    
+        if (isBotRunning) {
+            logActivity('AI Bot is scanning for opportunities...', 'info');
+            botInterval = window.setInterval(simulateBotAction, 7000); // Act every 7 seconds
+        }
+    
+        return () => {
+            if (botInterval) {
+                clearInterval(botInterval);
+            }
+        };
+    }, [isBotRunning, positions]);
+
     // Admin View Security
     if (view === 'admin' && !isAdminVisible) {
         setView('dashboard');
@@ -1432,7 +1506,7 @@ function AppContent() {
     const renderView = () => {
         switch (view) {
             case 'dashboard':
-                return <DashboardView history={MOCK_PORTFOLIO_HISTORY} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleManualClosePosition} />;
+                return <DashboardView history={MOCK_PORTFOLIO_HISTORY} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleClosePosition} />;
             case 'trade':
                 return <TradeView data={MOCK_TRADE_VIEW_DATA} onExecuteTrade={handleExecuteTrade} isBotRunning={isBotRunning} onToggleBot={handleToggleBot} isDeployable={isDeployable} realizedPnl={realizedPnl} activityLog={activityLog} onWithdrawProfits={handleWithdrawProfits} onGetSuggestion={getTradingSuggestionHandler} aiSuggestion={aiSuggestion} />;
             case 'wallet':
