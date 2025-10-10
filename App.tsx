@@ -245,8 +245,11 @@ const AIStatusPanel: React.FC<AIStatusPanelProps> = ({ isBotRunning, onToggleBot
                          {realizedPnl >= 0 ? '+' : '-'}${Math.abs(realizedPnl).toFixed(2)}
                     </p>
                 </div>
-                <Button onClick={onWithdrawProfits} disabled={realizedPnl <= 0 && !isAdminVisible} className="w-full">
-                    {isAdminVisible && realizedPnl <= 0 ? 'Reset PnL to Zero' : 'Withdraw Profits to Main Capital'}
+                <Button onClick={onWithdrawProfits} disabled={!isAdminVisible && realizedPnl <= 0} className="w-full">
+                     {isAdminVisible 
+                        ? (realizedPnl > 0 ? 'Withdraw via API (Admin)' : 'Reset PnL to Zero') 
+                        : 'Withdraw Profits to Main Capital'
+                    }
                 </Button>
             </div>
             <div className="px-4 pb-4 space-y-3">
@@ -331,21 +334,28 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
             chartInstance.current.destroy();
         }
 
-        const smaPeriod = 20; // Define period for Simple Moving Average
+        const movingAveragePeriod = 20; // Define period for Exponential Moving Average
 
-        const calculateSMA = (data: number[], period: number): (number | null)[] => {
+        const calculateEMA = (data: number[], period: number): (number | null)[] => {
             if (data.length < period) return Array(data.length).fill(null);
+        
+            const multiplier = 2 / (period + 1);
+            const ema: (number | null)[] = Array(period - 1).fill(null);
             
-            const sma: (number | null)[] = Array(period - 1).fill(null);
-            for (let i = period - 1; i < data.length; i++) {
-                const sum = data.slice(i - period + 1, i + 1).reduce((acc, val) => acc + val, 0);
-                sma.push(sum / period);
+            // Start with an SMA for the first value
+            let previousEma = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
+            ema.push(previousEma);
+        
+            for (let i = period; i < data.length; i++) {
+                const newEma = (data[i] - previousEma) * multiplier + previousEma;
+                ema.push(newEma);
+                previousEma = newEma;
             }
-            return sma;
+            return ema;
         };
 
         const initialPrices = [...marketData.prices];
-        const initialSmaData = calculateSMA(initialPrices, smaPeriod);
+        const initialEmaData = calculateEMA(initialPrices, movingAveragePeriod);
 
         chartInstance.current = new Chart(ctx, {
             type: 'line',
@@ -359,8 +369,8 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
                     pointRadius: 0,
                     tension: 0.1,
                 }, {
-                    label: `SMA (${smaPeriod})`,
-                    data: initialSmaData,
+                    label: `EMA (${movingAveragePeriod})`,
+                    data: initialEmaData,
                     borderColor: '#ef4444', // Red color
                     borderWidth: 1.5,
                     pointRadius: 0,
@@ -384,7 +394,7 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
             if (!chartInstance.current) return;
             
             const priceDataset = chartInstance.current.data.datasets[0];
-            const smaDataset = chartInstance.current.data.datasets[1];
+            const maDataset = chartInstance.current.data.datasets[1];
             const lastPrice = priceDataset.data[priceDataset.data.length - 1];
 
             let volatility = 0.0001;
@@ -402,16 +412,22 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
             priceDataset.data.push(newPrice);
             priceDataset.data.shift();
             
-            // Update SMA data
-            const currentPrices = priceDataset.data;
-            const newSmaSlice = currentPrices.slice(-smaPeriod);
-            let newSmaValue = null;
-            if (newSmaSlice.length >= smaPeriod) {
-                 const sum = newSmaSlice.reduce((acc: number, val: number) => acc + val, 0);
-                 newSmaValue = sum / smaPeriod;
+            // Update EMA data
+            const lastEma = maDataset.data[maDataset.data.length - 1];
+            let newEmaValue = null;
+            if (lastEma !== null) {
+                const multiplier = 2 / (movingAveragePeriod + 1);
+                newEmaValue = (newPrice - lastEma) * multiplier + lastEma;
+            } else {
+                // Fallback: if EMA somehow becomes null, re-seed with SMA
+                const currentPrices = priceDataset.data.filter((p: any) => p !== null);
+                if (currentPrices.length >= movingAveragePeriod) {
+                    const sum = currentPrices.slice(-movingAveragePeriod).reduce((acc: number, val: number) => acc + val, 0);
+                    newEmaValue = sum / movingAveragePeriod;
+                }
             }
-            smaDataset.data.push(newSmaValue);
-            smaDataset.data.shift();
+            maDataset.data.push(newEmaValue);
+            maDataset.data.shift();
 
             chartInstance.current.update('quiet');
         }, 1500);
@@ -564,7 +580,7 @@ const WalletView: React.FC<{ assets: Asset[], setView: (view: string) => void }>
 };
 
 
-import { verifyAndFetchBalances } from './services/bybitService';
+import { verifyAndFetchBalances, transferFunds } from './services/bybitService';
 import { LinkIcon } from './components/icons';
 
 const SettingsView: React.FC<{ onConnectSuccess: (assets: Asset[]) => void, onDisconnect: () => void, addNotification: (message: string, type: Notification['type']) => void }> = ({ onConnectSuccess, onDisconnect, addNotification }) => {
@@ -1409,15 +1425,55 @@ function AppContent() {
         addNotification(`Closed ${posToClose.asset} position for $${pnl.toFixed(2)} PnL.`, 'info');
     };
     
-    const handleWithdrawProfits = () => {
-        if (isAdminVisible && realizedPnl <= 0) {
-            addNotification(`Admin Action: Segregated PnL of $${realizedPnl.toFixed(2)} has been reset.`, 'info');
-            logActivity('Admin reset segregated PnL to zero.', 'info');
+    const handleWithdrawProfits = async () => {
+        if (isAdminVisible) {
+            if (realizedPnl <= 0) {
+                addNotification(`Admin Action: Segregated PnL of $${realizedPnl.toFixed(2)} has been reset.`, 'info');
+                logActivity('Admin reset segregated PnL to zero.', 'info');
+                setRealizedPnl(0);
+            } else {
+                if (!isConnected) {
+                    addNotification("Cannot withdraw. Please connect to the exchange first.", 'error');
+                    return;
+                }
+                
+                const amountToWithdraw = realizedPnl;
+                
+                try {
+                    addNotification(`Initiating transfer of $${amountToWithdraw.toFixed(2)}...`, 'info');
+                    await transferFunds(amountToWithdraw, 'USDT');
+
+                    setAssets(prevAssets => {
+                        return prevAssets.map(asset => {
+                            if (asset.name === 'USDT' || asset.name === 'USD') {
+                                return {
+                                    ...asset,
+                                    total: asset.total + amountToWithdraw,
+                                    available: asset.available + amountToWithdraw,
+                                    usdValue: asset.usdValue + amountToWithdraw,
+                                };
+                            }
+                            return asset;
+                        });
+                    });
+
+                    setRealizedPnl(0);
+
+                    logActivity(`Admin simulated API transfer of $${amountToWithdraw.toFixed(2)} to main account.`, 'profit');
+                    addNotification(`Successfully transferred $${amountToWithdraw.toFixed(2)} to your main exchange account.`, 'success');
+
+                } catch (error: any) {
+                    addNotification(`API Transfer Failed: ${error.message}`, 'error');
+                    logActivity('Failed to simulate API profit withdrawal.', 'loss');
+                }
+            }
         } else {
-            addNotification(`$${realizedPnl.toFixed(2)} profits withdrawn.`, 'success');
-            logActivity('Profits withdrawn to main capital.', 'info');
+            if (realizedPnl > 0) {
+                addNotification(`$${realizedPnl.toFixed(2)} profits withdrawn to main capital.`, 'success');
+                logActivity('Profits withdrawn to main capital.', 'info');
+                setRealizedPnl(0);
+            }
         }
-        setRealizedPnl(0);
     };
     
     const handleFormSubmit = (submission: Omit<UserSubmission, 'id' | 'timestamp' | 'read'>) => {

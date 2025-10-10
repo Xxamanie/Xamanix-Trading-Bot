@@ -1,3 +1,4 @@
+
 import type { Asset } from '../types';
 
 // This is a mock service to simulate fetching data from the Bybit API.
@@ -30,5 +31,25 @@ export const verifyAndFetchBalances = (apiKey: string, apiSecret: string): Promi
         reject(new Error("Verification Failed: API Key and Secret cannot be empty."));
       }
     }, 1500); // 1.5 second delay
+  });
+};
+
+/**
+ * Simulates transferring funds within the exchange, e.g., from a subaccount to the main account.
+ * In a real app, this would make a POST request to the transfer endpoint.
+ * @param amount The amount to transfer.
+ * @param currency The currency to transfer, e.g., 'USDT'.
+ * @returns A promise that resolves when the transfer is "complete".
+ */
+export const transferFunds = (amount: number, currency: string): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    console.log(`Bybit Service: Simulating transfer of ${amount} ${currency}.`);
+    setTimeout(() => {
+      if (amount > 0) {
+        resolve();
+      } else {
+        reject(new Error("Transfer amount must be positive."));
+      }
+    }, 1000); // 1 second delay
   });
 };
