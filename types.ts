@@ -18,6 +18,7 @@ export interface Position {
   pnl: number;
   pnlPercent: number;
   openTimestamp: string;
+  seen?: boolean;
 }
 
 export interface ClosedTrade {

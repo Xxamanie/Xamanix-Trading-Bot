@@ -1309,6 +1309,7 @@ function AppContent() {
             pnl: 0,
             pnlPercent: 0,
             openTimestamp: new Date().toISOString(),
+            seen: false,
         };
         setPositions(prev => [...prev, newPosition]);
         logActivity(`Manual trade executed: ${details.direction} ${newPosition.size.toFixed(4)} ${details.asset}.`, 'trade');
@@ -1362,8 +1363,6 @@ function AppContent() {
         setSubmissions(submissions.map(s => s.id === id ? { ...s, read: true } : s));
     };
 
-    const unreadSubmissionsCount = submissions.filter(s => !s.read && s.type === 'complaint').length;
-
     const handleTitleClick = () => {
         if (titleClickTimer.current) {
             clearTimeout(titleClickTimer.current);
@@ -1384,10 +1383,30 @@ function AppContent() {
     };
 
     useEffect(() => {
-        if (isAdminVisible && view === 'admin' && submissions.filter(s => !s.read).length > 0) {
-           // Maybe mark all as read when view is opened? For now, manual.
+        const markPositionsAsSeen = () => {
+            setPositions(prevPositions => {
+                if (prevPositions.some(p => !p.seen)) {
+                    return prevPositions.map(p => ({ ...p, seen: true }));
+                }
+                return prevPositions;
+            });
+        };
+
+        const markSubmissionsAsRead = () => {
+            setSubmissions(prevSubmissions => {
+                if (prevSubmissions.some(s => !s.read)) {
+                    return prevSubmissions.map(s => ({ ...s, read: true }));
+                }
+                return prevSubmissions;
+            });
+        };
+
+        if (view === 'dashboard') {
+            setTimeout(markPositionsAsSeen, 500);
+        } else if (view === 'admin') {
+            setTimeout(markSubmissionsAsRead, 500);
         }
-    }, [view, isAdminVisible, submissions]);
+    }, [view]);
     
     // Admin View Security
     if (view === 'admin' && !isAdminVisible) {
@@ -1407,6 +1426,8 @@ function AppContent() {
         }
     };
 
+    const unseenPositionsCount = positions.filter(p => !p.seen).length;
+    const unreadSubmissionsCount = submissions.filter(s => !s.read && s.type === 'complaint').length;
 
     const renderView = () => {
         switch (view) {
@@ -1441,7 +1462,7 @@ function AppContent() {
                 setView={setView} 
                 isAdminVisible={isAdminVisible} 
                 onTitleClick={handleTitleClick}
-                positionsCount={positions.length}
+                positionsCount={unseenPositionsCount}
                 unreadSubmissionsCount={unreadSubmissionsCount}
             />
             <main className="flex-1 flex flex-col overflow-hidden">

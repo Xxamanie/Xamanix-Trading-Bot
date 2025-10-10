@@ -21,14 +21,13 @@ export const verifyAndFetchBalances = (apiKey: string, apiSecret: string): Promi
   return new Promise((resolve, reject) => {
     // Simulate network delay
     setTimeout(() => {
-      // Use simple mock keys for demonstration purposes.
-      // A real implementation would not have hardcoded keys.
-      if (apiKey === 'VALID_KEY' && apiSecret === 'VALID_SECRET') {
-        console.log("Bybit Service: API Keys are valid. Fetching balances.");
+      // Mock verification: succeed if both fields have any content.
+      if (apiKey.trim().length > 0 && apiSecret.trim().length > 0) {
+        console.log("Bybit Service: API Keys provided. Mocking successful verification.");
         resolve(MOCK_REAL_BALANCES);
       } else {
-        console.log("Bybit Service: Invalid API Keys provided.");
-        reject(new Error("Verification Failed: Invalid API Key or Secret."));
+        console.log("Bybit Service: API Key or Secret is missing.");
+        reject(new Error("Verification Failed: API Key and Secret cannot be empty."));
       }
     }, 1500); // 1.5 second delay
   });

@@ -18,9 +18,9 @@ export const MOCK_ASSETS: Asset[] = [
 ];
 
 export const MOCK_POSITIONS: Position[] = [
-  { id: '1', asset: 'BTC/USD', direction: 'LONG', entryPrice: 68500, size: 0.02, pnl: 120.50, pnlPercent: 8.8, openTimestamp: new Date(Date.now() - 3600000).toISOString() },
-  { id: '2', asset: 'ETH/USD', direction: 'LONG', entryPrice: 3600, size: 0.3, pnl: 85.23, pnlPercent: 7.9, openTimestamp: new Date(Date.now() - 7200000).toISOString() },
-  { id: '3', asset: 'SOL/USD', direction: 'SHORT', entryPrice: 165, size: 5, pnl: -25.50, pnlPercent: -3.1, openTimestamp: new Date(Date.now() - 1800000).toISOString() },
+  { id: '1', asset: 'BTC/USD', direction: 'LONG', entryPrice: 68500, size: 0.02, pnl: 120.50, pnlPercent: 8.8, openTimestamp: new Date(Date.now() - 3600000).toISOString(), seen: false },
+  { id: '2', asset: 'ETH/USD', direction: 'LONG', entryPrice: 3600, size: 0.3, pnl: 85.23, pnlPercent: 7.9, openTimestamp: new Date(Date.now() - 7200000).toISOString(), seen: false },
+  { id: '3', asset: 'SOL/USD', direction: 'SHORT', entryPrice: 165, size: 5, pnl: -25.50, pnlPercent: -3.1, openTimestamp: new Date(Date.now() - 1800000).toISOString(), seen: false },
 ];
 
 const generateCandleData = (basePrice: number, points: number, volatility: number): PriceData => {
