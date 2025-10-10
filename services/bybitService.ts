@@ -4,8 +4,13 @@ import { MOCK_TRADE_VIEW_DATA } from '../constants';
 
 // This service simulates a live connection to the Bybit API.
 // It maintains a session-specific state for balances and processes trade executions.
+// For a successful connection, use the following dummy credentials:
+// API Key: test_api_key_123
+// API Secret: test_api_secret_456
 
 let sessionBalances: Asset[] | null = null;
+const VALID_API_KEY = 'test_api_key_123';
+const VALID_API_SECRET = 'test_api_secret_456';
 
 const generateRandomBalances = (): Asset[] => {
     const randomFloat = (min: number, max: number, decimals: number) => {
@@ -30,13 +35,13 @@ const generateRandomBalances = (): Asset[] => {
 export const verifyAndFetchBalances = (apiKey: string, apiSecret: string): Promise<Asset[]> => {
   return new Promise((resolve, reject) => {
     setTimeout(() => {
-      if (apiKey.trim().length > 0 && apiSecret.trim().length > 0) {
+      if (apiKey === VALID_API_KEY && apiSecret === VALID_API_SECRET) {
         if (!sessionBalances) {
             sessionBalances = generateRandomBalances();
         }
         resolve(JSON.parse(JSON.stringify(sessionBalances)));
       } else {
-        reject(new Error("Verification Failed: API Key and Secret cannot be empty."));
+        reject(new Error("Invalid API credentials. Please check and try again."));
       }
     }, 1500);
   });

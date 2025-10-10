@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification } from './types';
+import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification, Order } from './types';
 import { MOCK_PORTFOLIO_HISTORY, MOCK_ASSETS, MOCK_POSITIONS, MOCK_TRADE_VIEW_DATA, DEFAULT_SCRIPT } from './constants';
 import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, SunIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon, ExclamationTriangleIcon, BellIcon } from './components/icons';
 import RecommendationsPanel from './components/RecommendationsPanel';
@@ -82,116 +82,6 @@ const Textarea: React.FC<{ label: string; value: string; onChange: (e: React.Cha
         />
     </div>
 );
-
-
-// View Components
-const DashboardView: React.FC<{ history: PortfolioHistory; positions: Position[], realizedPnl: number, assets: Asset[], onManualClosePosition: (positionId: string) => void }> = ({ history, positions, realizedPnl, assets, onManualClosePosition }) => {
-    const chartRef = useRef<HTMLCanvasElement | null>(null);
-    const chartInstance = useRef<any | null>(null);
-
-    const totalAssetsValue = assets.reduce((sum, asset) => sum + asset.usdValue, 0);
-    const openPnl = positions.reduce((acc, pos) => acc + pos.pnl, 0);
-    const totalValue = totalAssetsValue + openPnl;
-    const yesterdaysValue = history.equity[history.equity.length - 2] ?? totalValue;
-    const todaysChange = totalValue - yesterdaysValue;
-    const todaysChangePct = yesterdaysValue !== 0 ? (todaysChange / yesterdaysValue) * 100 : 0;
-
-    useEffect(() => {
-        if (!chartRef.current) return;
-        const ctx = chartRef.current.getContext('2d');
-        if (!ctx) return;
-
-        if (chartInstance.current) chartInstance.current.destroy();
-
-        chartInstance.current = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: history.timestamps.map(t => new Date(t).toLocaleDateString()),
-                datasets: [{
-                    label: 'Portfolio Value',
-                    data: history.equity,
-                    borderColor: 'rgb(34, 211, 238)',
-                    backgroundColor: 'rgba(34, 211, 238, 0.1)',
-                    borderWidth: 2,
-                    pointRadius: 0,
-                    tension: 0.4,
-                    fill: true,
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { display: false },
-                    y: { display: false }
-                }
-            }
-        });
-        return () => chartInstance.current?.destroy();
-    }, [history]);
-
-    return (
-        <div className="p-6 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <Card className="p-6 md:col-span-2">
-                    <div className="flex justify-between items-start">
-                        <div>
-                            <p className="text-sm text-gray-400">Total Portfolio Value</p>
-                            <p className="text-4xl font-bold text-white">${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                        </div>
-                        <div className={`text-right ${todaysChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            <p className="font-semibold">{todaysChange >= 0 ? '+' : ''}{todaysChange.toFixed(2)} ({todaysChangePct.toFixed(2)}%)</p>
-                            <p className="text-sm">Today</p>
-                        </div>
-                    </div>
-                    <div className="h-48 mt-4">
-                        <canvas ref={chartRef}></canvas>
-                    </div>
-                </Card>
-                 <Card className="p-6 flex flex-col justify-center">
-                    <p className="text-sm text-gray-400">Total Realized PnL</p>
-                    <p className={`text-4xl font-bold ${realizedPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {realizedPnl >= 0 ? '+' : '-'}${Math.abs(realizedPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-2">Cumulative profit/loss from all closed bot trades.</p>
-                </Card>
-            </div>
-
-
-            <Card>
-                <h3 className="text-lg font-semibold text-white p-4 border-b border-gray-700">Open Positions</h3>
-                <div className="divide-y divide-gray-700">
-                    {positions.length > 0 ? positions.map(pos => (
-                        <div key={pos.id} className="p-4 flex justify-between items-center hover:bg-gray-800 transition-colors">
-                           <div className="flex-1 grid grid-cols-5 items-center gap-4">
-                                <div className="col-span-2">
-                                    <p className="font-bold">{pos.asset} <span className={`text-xs font-semibold ${pos.direction === 'LONG' ? 'text-green-400' : 'text-red-400'}`}>{pos.direction}</span></p>
-                                    <p className="text-sm text-gray-400">Entry: ${pos.entryPrice.toLocaleString()}</p>
-                                </div>
-                                <div className="text-right">
-                                    <p className="text-sm text-gray-400">Size</p>
-                                    <p className="font-semibold">{pos.size.toFixed(4)}</p>
-                                </div>
-                                <div className="text-right">
-                                    <p className="text-sm text-gray-400">PnL</p>
-                                    <p className={`font-semibold ${pos.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                        {pos.pnl >= 0 ? '+' : '-'}${Math.abs(pos.pnl).toFixed(2)} ({pos.pnlPercent.toFixed(2)}%)
-                                    </p>
-                                </div>
-                                <div className="text-right">
-                                    <Button onClick={() => onManualClosePosition(pos.id)} className="!py-1.5 !px-3 text-sm">Close</Button>
-                                </div>
-                            </div>
-                        </div>
-                    )) : (
-                        <p className="text-center text-gray-500 py-8">No open positions.</p>
-                    )}
-                </div>
-            </Card>
-        </div>
-    );
-};
 
 interface AIStatusPanelProps {
     isBotRunning: boolean;
@@ -289,6 +179,141 @@ const AIStatusPanel: React.FC<AIStatusPanelProps> = ({ isBotRunning, onToggleBot
     );
 };
 
+// View Components
+interface DashboardViewProps {
+    history: PortfolioHistory;
+    positions: Position[];
+    realizedPnl: number;
+    assets: Asset[];
+    onManualClosePosition: (positionId: string) => void;
+    // Props for AIStatusPanel
+    isBotRunning: boolean;
+    onToggleBot: () => void;
+    isDeployable: boolean;
+    activityLog: ActivityLogEntry[];
+    onWithdrawProfits: () => void;
+    onGetSuggestion: () => Promise<void>;
+    aiSuggestion: { suggestion: string; isLoading: boolean; error: string | null; };
+    isAdminVisible: boolean;
+}
+
+const DashboardView: React.FC<DashboardViewProps> = ({ history, positions, realizedPnl, assets, onManualClosePosition, ...aiStatusPanelProps }) => {
+    const chartRef = useRef<HTMLCanvasElement | null>(null);
+    const chartInstance = useRef<any | null>(null);
+
+    const totalAssetsValue = assets.reduce((sum, asset) => sum + asset.usdValue, 0);
+    const openPnl = positions.reduce((acc, pos) => acc + pos.pnl, 0);
+    const totalValue = totalAssetsValue + openPnl;
+    const yesterdaysValue = history.equity[history.equity.length - 2] ?? totalValue;
+    const todaysChange = totalValue - yesterdaysValue;
+    const todaysChangePct = yesterdaysValue !== 0 ? (todaysChange / yesterdaysValue) * 100 : 0;
+
+    useEffect(() => {
+        if (!chartRef.current) return;
+        const ctx = chartRef.current.getContext('2d');
+        if (!ctx) return;
+
+        if (chartInstance.current) chartInstance.current.destroy();
+
+        chartInstance.current = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: history.timestamps.map(t => new Date(t).toLocaleDateString()),
+                datasets: [{
+                    label: 'Portfolio Value',
+                    data: history.equity,
+                    borderColor: 'rgb(34, 211, 238)',
+                    backgroundColor: 'rgba(34, 211, 238, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.4,
+                    fill: true,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { display: false },
+                    y: { display: false }
+                }
+            }
+        });
+        return () => chartInstance.current?.destroy();
+    }, [history]);
+
+    return (
+        <div className="p-6 flex gap-6 h-full">
+            {/* Left Column */}
+            <div className="w-2/3 flex flex-col gap-6">
+                <Card className="p-6">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-sm text-gray-400">Total Portfolio Value</p>
+                            <p className="text-4xl font-bold text-white">${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        </div>
+                        <div className={`text-right ${todaysChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            <p className="font-semibold">{todaysChange >= 0 ? '+' : ''}{todaysChange.toFixed(2)} ({todaysChangePct.toFixed(2)}%)</p>
+                            <p className="text-sm">Today</p>
+                        </div>
+                    </div>
+                    <div className="h-48 mt-4">
+                        <canvas ref={chartRef}></canvas>
+                    </div>
+                </Card>
+
+                <Card className="flex-grow flex flex-col min-h-0">
+                    <h3 className="text-lg font-semibold text-white p-4 border-b border-gray-700 flex-shrink-0">Open Positions</h3>
+                    <div className="flex-grow overflow-y-auto">
+                        <div className="divide-y divide-gray-700">
+                            {positions.length > 0 ? positions.map(pos => (
+                                <div key={pos.id} className="p-4 flex justify-between items-center hover:bg-gray-800 transition-colors">
+                                <div className="flex-1 grid grid-cols-5 items-center gap-4">
+                                        <div className="col-span-2">
+                                            <p className="font-bold">{pos.asset} <span className={`text-xs font-semibold ${pos.direction === 'LONG' ? 'text-green-400' : 'text-red-400'}`}>{pos.direction}</span></p>
+                                            <p className="text-sm text-gray-400">Entry: ${pos.entryPrice.toLocaleString()}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-sm text-gray-400">Size</p>
+                                            <p className="font-semibold">{pos.size.toFixed(4)}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-sm text-gray-400">PnL</p>
+                                            <p className={`font-semibold ${pos.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                                {pos.pnl >= 0 ? '+' : '-'}${Math.abs(pos.pnl).toFixed(2)} ({pos.pnlPercent.toFixed(2)}%)
+                                            </p>
+                                        </div>
+                                        <div className="text-right">
+                                            <Button onClick={() => onManualClosePosition(pos.id)} className="!py-1.5 !px-3 text-sm">Close</Button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )) : (
+                                <p className="text-center text-gray-500 py-8">No open positions.</p>
+                            )}
+                        </div>
+                    </div>
+                </Card>
+            </div>
+
+            {/* Right Column */}
+            <div className="w-1/3 flex flex-col gap-6">
+                <Card className="p-6 flex flex-col justify-center flex-shrink-0">
+                    <p className="text-sm text-gray-400">Total Realized PnL</p>
+                    <p className={`text-4xl font-bold ${realizedPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {realizedPnl >= 0 ? '+' : '-'}${Math.abs(realizedPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-2">Cumulative profit/loss from all closed bot trades.</p>
+                </Card>
+                <div className="flex-grow min-h-0">
+                     <AIStatusPanel {...aiStatusPanelProps} realizedPnl={realizedPnl} />
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 const PillButton: React.FC<{ onClick: () => void, isActive: boolean, children: React.ReactNode }> = ({ onClick, isActive, children }) => (
     <button onClick={onClick} className={`px-3 py-1 text-sm font-semibold rounded-full transition-colors ${isActive ? 'bg-cyan-500 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
@@ -296,26 +321,58 @@ const PillButton: React.FC<{ onClick: () => void, isActive: boolean, children: R
     </button>
 );
 
+const OrderBook: React.FC<{ bids: Order[]; asks: Order[]; }> = ({ bids, asks }) => {
+    const allTotals = [...bids.map(o => o.total), ...asks.map(o => o.total)];
+    const maxTotal = allTotals.length > 0 ? Math.max(...allTotals) : 0;
+
+    const OrderColumn: React.FC<{ orders: Order[]; type: 'bid' | 'ask'; }> = ({ orders, type }) => (
+        <div>
+            <div className="flex justify-between text-xs text-gray-500 px-2 mb-1">
+                <span>Price (USD)</span>
+                <span>Quantity</span>
+            </div>
+            <div className="space-y-0.5">
+                {orders.map((order, i) => (
+                    <div key={i} className="relative flex justify-between text-xs font-mono px-2 py-0.5 hover:bg-gray-700/50 cursor-pointer">
+                        <div 
+                            className={`absolute top-0 bottom-0 ${type === 'bid' ? 'right-0 bg-green-500/15' : 'left-0 bg-red-500/15'}`}
+                            style={{ width: `${maxTotal > 0 ? (order.total / maxTotal) * 100 : 0}%` }}
+                        />
+                        <span className={type === 'bid' ? 'text-green-400' : 'text-red-400'}>{order.price.toFixed(2)}</span>
+                        <span className="text-gray-300">{order.quantity.toFixed(4)}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+    
+    const sortedAsks = [...asks].sort((a, b) => a.price - b.price);
+    const sortedBids = [...bids].sort((a, b) => b.price - a.price);
+
+    return (
+        <Card className="p-0 flex-grow flex flex-col min-h-0">
+            <h3 className="text-md font-semibold text-white p-3 border-b border-gray-700 flex-shrink-0">Order Book</h3>
+            <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-4 p-2 overflow-y-auto">
+                <OrderColumn orders={sortedBids.slice(0, 15)} type="bid" />
+                <OrderColumn orders={sortedAsks.slice(0, 15)} type="ask" />
+            </div>
+        </Card>
+    );
+};
+
 interface TradeViewProps {
   data: TradeViewData;
   onExecuteTrade: (details: { asset: string, direction: 'LONG' | 'SHORT', amountUSD: number }) => void;
   isBotRunning: boolean;
-  onToggleBot: () => void;
-  isDeployable: boolean;
-  realizedPnl: number;
-  activityLog: ActivityLogEntry[];
-  onWithdrawProfits: () => void;
-  onGetSuggestion: () => Promise<void>;
-  aiSuggestion: { suggestion: string; isLoading: boolean; error: string | null; };
-  isAdminVisible: boolean;
   isConnected: boolean;
 }
 
 const TradeView: React.FC<TradeViewProps> = (props) => {
-    const { data, onExecuteTrade, isBotRunning, aiSuggestion, onGetSuggestion, isConnected } = props;
+    const { data, onExecuteTrade, isBotRunning, isConnected } = props;
     const chartRef = useRef<HTMLCanvasElement | null>(null);
     const chartInstance = useRef<any | null>(null);
     const [market, setMarket] = useState(Object.keys(data)[0]);
+    const [orderBook, setOrderBook] = useState<{bids: Order[], asks: Order[]}>({ bids: [], asks: [] });
 
     const candleFrequencies = ['5m', '15m', '1h', '4h'];
     const [candleFrequency, setCandleFrequency] = useState(candleFrequencies[1]);
@@ -356,35 +413,86 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
             }
             return ema;
         };
+        
+        const generateOrderBookData = (currentPrice: number, market: string): { bids: Order[]; asks: Order[] } => {
+            const bids: Order[] = [];
+            const asks: Order[] = [];
+            const levels = 20;
+            let priceStep = 0.5;
+            if (market.includes('ETH')) priceStep = 0.25;
+            if (market.includes('SOL')) priceStep = 0.05;
+            if (market.includes('NGN')) priceStep = 0.00001;
+    
+            for (let i = 1; i <= levels; i++) {
+                const askPrice = currentPrice + (i * priceStep * (1 + (Math.random() - 0.5) * 0.1));
+                const askQuantity = Math.random() * (market.includes('BTC') ? 0.5 : 5);
+                asks.push({ price: askPrice, quantity: askQuantity, total: askPrice * askQuantity });
+    
+                const bidPrice = currentPrice - (i * priceStep * (1 + (Math.random() - 0.5) * 0.1));
+                const bidQuantity = Math.random() * (market.includes('BTC') ? 0.5 : 5);
+                bids.push({ price: bidPrice, quantity: bidQuantity, total: bidPrice * bidQuantity });
+            }
+            return { bids, asks };
+        };
 
         const initialPrices = [...marketData.prices];
         const initialEmaData = calculateEMA(initialPrices, movingAveragePeriod);
+        
+        if (initialPrices.length > 0) {
+            setOrderBook(generateOrderBookData(initialPrices[initialPrices.length - 1], market));
+        }
 
         chartInstance.current = new Chart(ctx, {
-            type: 'line',
             data: {
                 labels: marketData.timestamps.map(t => new Date(t).toLocaleTimeString()),
                 datasets: [{
+                    type: 'line',
                     label: `${market} Price (${candleFrequency})`,
                     data: initialPrices, 
                     borderColor: '#22d3ee',
                     borderWidth: 2,
                     pointRadius: 0,
                     tension: 0.1,
+                    order: 1
                 }, {
+                    type: 'line',
                     label: `EMA (${movingAveragePeriod})`,
                     data: initialEmaData,
                     borderColor: '#ef4444', // Red color
                     borderWidth: 1.5,
                     pointRadius: 0,
                     tension: 0.1,
+                    order: 1
+                }, {
+                    type: 'bubble',
+                    label: 'Buy Trades',
+                    data: [],
+                    backgroundColor: 'rgba(16, 185, 129, 0.9)',
+                    borderColor: 'rgba(255, 255, 255, 1)',
+                    borderWidth: 1.5,
+                    radius: 5,
+                    order: 0,
+                }, {
+                    type: 'bubble',
+                    label: 'Sell Trades',
+                    data: [],
+                    backgroundColor: 'rgba(220, 38, 38, 0.9)',
+                    borderColor: 'rgba(255, 255, 255, 1)',
+                    borderWidth: 1.5,
+                    radius: 5,
+                    order: 0,
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: { 
-                    legend: { labels: { color: '#d1d5db' } } 
+                    legend: { 
+                        labels: { 
+                            color: '#d1d5db',
+                            filter: (item) => !item.text.includes('Trades'),
+                        } 
+                    } 
                 },
                 scales: {
                     x: { ticks: { color: '#9ca3af' }, grid: { color: 'rgba(255, 255, 255, 0.1)' } },
@@ -396,8 +504,12 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
         const intervalId = setInterval(() => {
             if (!chartInstance.current) return;
             
-            const priceDataset = chartInstance.current.data.datasets[0];
-            const maDataset = chartInstance.current.data.datasets[1];
+            const datasets = chartInstance.current.data.datasets;
+            const priceDataset = datasets[0];
+            const maDataset = datasets[1];
+            const buyDataset = datasets[2];
+            const sellDataset = datasets[3];
+            
             const lastPrice = priceDataset.data[priceDataset.data.length - 1];
 
             let volatility = 0.0001;
@@ -406,6 +518,8 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
             
             const newPrice = lastPrice * (1 + (Math.random() - 0.5) * volatility);
             const newTimestamp = new Date().toLocaleTimeString();
+            
+            setOrderBook(generateOrderBookData(newPrice, market));
 
             // Update labels
             chartInstance.current.data.labels.push(newTimestamp);
@@ -432,6 +546,12 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
             maDataset.data.push(newEmaValue);
             maDataset.data.shift();
 
+            // Update trade marker positions
+            buyDataset.data.forEach((p: {x:number}) => { if(p) p.x-- });
+            sellDataset.data.forEach((p: {x:number}) => { if(p) p.x-- });
+            buyDataset.data = buyDataset.data.filter((p: {x:number}) => p && p.x >= 0);
+            sellDataset.data = sellDataset.data.filter((p: {x:number}) => p && p.x >= 0);
+
             chartInstance.current.update('quiet');
         }, 1500);
 
@@ -451,6 +571,25 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
             console.error("Invalid trade amount");
             return;
         }
+
+        if (chartInstance.current) {
+            const priceDataset = chartInstance.current.data.datasets[0];
+            const buyDataset = chartInstance.current.data.datasets[2];
+            const sellDataset = chartInstance.current.data.datasets[3];
+            
+            const tradeIndex = priceDataset.data.length - 1;
+            const tradePrice = priceDataset.data[tradeIndex];
+
+            const newPoint = { x: tradeIndex, y: tradePrice, r: 6 };
+            
+            if (direction === 'LONG') {
+                buyDataset.data.push(newPoint);
+            } else {
+                sellDataset.data.push(newPoint);
+            }
+            chartInstance.current.update('quiet');
+        }
+
         onExecuteTrade({
             asset: market,
             direction: direction,
@@ -481,25 +620,14 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
                 </div>
             </div>
             <div className="w-1/3 flex flex-col gap-6">
-                <AIStatusPanel
-                    isBotRunning={props.isBotRunning}
-                    onToggleBot={props.onToggleBot}
-                    isDeployable={props.isDeployable}
-                    realizedPnl={props.realizedPnl}
-                    activityLog={props.activityLog}
-                    onWithdrawProfits={props.onWithdrawProfits}
-                    onGetSuggestion={onGetSuggestion}
-                    aiSuggestion={aiSuggestion}
-                    isAdminVisible={props.isAdminVisible}
-                />
-                 <Card className="p-4 flex-shrink-0">
+                <Card className="p-4 flex-shrink-0">
                     <h3 className="text-lg font-semibold text-white mb-4">Manual Trade</h3>
                     <div className="grid grid-cols-2 gap-4">
                         <Input label="Trade Amount" value={tradeAmount} onChange={(e) => setTradeAmount(e.target.value)} leadingAddon="$" />
                         <Input label="Stop Loss (%)" value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} />
                     </div>
                     <div className="mt-4 pt-4 border-t border-gray-700/50 flex justify-between items-center">
-                         <div className="relative group flex space-x-3 w-full">
+                            <div className="relative group flex space-x-3 w-full">
                             <Button 
                                 onClick={() => handleTrade('LONG')} 
                                 variant="primary" 
@@ -516,14 +644,18 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
                             >
                                 Sell / Short
                             </Button>
-                             {(isBotRunning || !isConnected) && (
+                                {(isBotRunning || !isConnected) && (
                                 <div className="absolute bottom-full mb-2 w-max bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                                     {!isConnected ? "Connect to exchange to trade." : "Manual trading is disabled while AI Strategy is active."}
+                                        {!isConnected ? "Connect to exchange to trade." : "Manual trading is disabled while AI Strategy is active."}
                                 </div>
                             )}
                         </div>
                     </div>
                 </Card>
+
+                <div className="flex-grow min-h-0">
+                     <OrderBook bids={orderBook.bids} asks={orderBook.asks} />
+                </div>
             </div>
         </div>
     );
@@ -553,30 +685,36 @@ const WalletView: React.FC<{ assets: Asset[], setView: (view: string) => void }>
         <div className="p-6">
             <Card>
                 <h3 className="text-lg font-semibold text-white p-4 border-b border-gray-700">Wallet Balances</h3>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead className="text-xs text-gray-400 uppercase bg-gray-800">
-                            <tr>
-                                <th className="px-6 py-3">Asset</th>
-                                <th className="px-6 py-3">Total</th>
-                                <th className="px-6 py-3">Available</th>
-                                <th className="px-6 py-3">In Orders</th>
-                                <th className="px-6 py-3">USD Value</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {assets.map(asset => (
-                                <tr key={asset.name} className="border-b border-gray-700 hover:bg-gray-800/70 transition-colors">
-                                    <td className="px-6 py-4 font-semibold text-white">{asset.name}</td>
-                                    <td className="px-6 py-4">{asset.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}</td>
-                                    <td className="px-6 py-4">{asset.available.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}</td>
-                                    <td className="px-6 py-4">{asset.inOrders.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}</td>
-                                    <td className="px-6 py-4">${asset.usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                 {assets.length === 0 ? (
+                    <div className="text-center text-gray-500 py-12">
+                        <p>No assets found in your wallet.</p>
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                            <thead className="text-xs text-gray-400 uppercase bg-gray-800">
+                                <tr>
+                                    <th className="px-6 py-3">Asset</th>
+                                    <th className="px-6 py-3">Total</th>
+                                    <th className="px-6 py-3">Available</th>
+                                    <th className="px-6 py-3">In Orders</th>
+                                    <th className="px-6 py-3">USD Value</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                            </thead>
+                            <tbody>
+                                {assets.map(asset => (
+                                    <tr key={asset.name} className="border-b border-gray-700 hover:bg-gray-800/70 transition-colors">
+                                        <td className="px-6 py-4 font-semibold text-white">{asset.name}</td>
+                                        <td className="px-6 py-4">{asset.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}</td>
+                                        <td className="px-6 py-4">{asset.available.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}</td>
+                                        <td className="px-6 py-4">{asset.inOrders.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}</td>
+                                        <td className="px-6 py-4">${asset.usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
             </Card>
         </div>
     );
@@ -1375,7 +1513,7 @@ function AppContent() {
                     console.error("Failed to reconnect with stored credentials:", e.message);
                     // If keys are no longer valid, disconnect the session in context and revert data
                     setIsConnected(false); 
-                    setAssets(MOCK_ASSETS);
+                    setAssets([]);
                     addNotification("Failed to reconnect with stored API keys. Please verify.", 'error');
                 }
             }
@@ -1421,7 +1559,7 @@ function AppContent() {
     };
     
     const handleDisconnect = () => {
-        setAssets(MOCK_ASSETS); // Revert to mock assets on disconnect
+        setAssets([]); // Revert to an empty state on disconnect
         setPositions([]);
         setIsConnected(false);
         clearSessionBalances();
@@ -1661,9 +1799,28 @@ function AppContent() {
     const renderView = () => {
         switch (view) {
             case 'dashboard':
-                return <DashboardView history={MOCK_PORTFOLIO_HISTORY} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleClosePosition} />;
+                return <DashboardView 
+                            history={MOCK_PORTFOLIO_HISTORY} 
+                            positions={positions} 
+                            realizedPnl={realizedPnl} 
+                            assets={assets} 
+                            onManualClosePosition={handleClosePosition}
+                            isBotRunning={isBotRunning}
+                            onToggleBot={handleToggleBot}
+                            isDeployable={isDeployable}
+                            activityLog={activityLog}
+                            onWithdrawProfits={handleWithdrawProfits}
+                            onGetSuggestion={getTradingSuggestionHandler}
+                            aiSuggestion={aiSuggestion}
+                            isAdminVisible={isAdminVisible}
+                        />;
             case 'trade':
-                return <TradeView data={MOCK_TRADE_VIEW_DATA} onExecuteTrade={handleExecuteTrade} isBotRunning={isBotRunning} onToggleBot={handleToggleBot} isDeployable={isDeployable} realizedPnl={realizedPnl} activityLog={activityLog} onWithdrawProfits={handleWithdrawProfits} onGetSuggestion={getTradingSuggestionHandler} aiSuggestion={aiSuggestion} isAdminVisible={isAdminVisible} isConnected={isConnected} />;
+                return <TradeView 
+                            data={MOCK_TRADE_VIEW_DATA} 
+                            onExecuteTrade={handleExecuteTrade} 
+                            isBotRunning={isBotRunning} 
+                            isConnected={isConnected} 
+                        />;
             case 'wallet':
                 return <WalletView assets={assets} setView={setView} />;
             case 'settings':
