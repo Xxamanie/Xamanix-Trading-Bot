@@ -1444,17 +1444,29 @@ function AppContent() {
                     await transferFunds(amountToWithdraw, 'USDT');
 
                     setAssets(prevAssets => {
-                        return prevAssets.map(asset => {
-                            if (asset.name === 'USDT' || asset.name === 'USD') {
-                                return {
-                                    ...asset,
-                                    total: asset.total + amountToWithdraw,
-                                    available: asset.available + amountToWithdraw,
-                                    usdValue: asset.usdValue + amountToWithdraw,
-                                };
-                            }
-                            return asset;
-                        });
+                        const assetsCopy = [...prevAssets];
+                        const stablecoinIndex = assetsCopy.findIndex(a => a.name === 'USDT' || a.name === 'USD');
+
+                        if (stablecoinIndex !== -1) {
+                            // Update existing stablecoin asset immutably
+                            assetsCopy[stablecoinIndex] = {
+                                ...assetsCopy[stablecoinIndex],
+                                total: assetsCopy[stablecoinIndex].total + amountToWithdraw,
+                                available: assetsCopy[stablecoinIndex].available + amountToWithdraw,
+                                usdValue: assetsCopy[stablecoinIndex].usdValue + amountToWithdraw,
+                            };
+                            return assetsCopy;
+                        } else {
+                            // Add new USDT asset if no stablecoin exists
+                            const newStablecoin: Asset = {
+                                name: 'USDT',
+                                total: amountToWithdraw,
+                                available: amountToWithdraw,
+                                inOrders: 0,
+                                usdValue: amountToWithdraw,
+                            };
+                            return [...assetsCopy, newStablecoin];
+                        }
                     });
 
                     setRealizedPnl(0);
