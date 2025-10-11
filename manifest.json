@@ -1,0 +1,22 @@
+{
+  "short_name": "Xamanix",
+  "name": "Xamanix Trading Bot",
+  "description": "An advanced AI-powered tool to analyze, provide recommendations, and enhance Python trading bot scripts for improved strategy and robustness.",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "scope": "/",
+  "theme_color": "#111827",
+  "background_color": "#111827"
+}
