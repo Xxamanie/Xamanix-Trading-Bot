@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification, Order } from './types';
 import { MOCK_PORTFOLIO_HISTORY, MOCK_TRADE_VIEW_DATA, DEFAULT_SCRIPT } from './constants';
-import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, SunIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon, ExclamationTriangleIcon, BellIcon, ExternalLinkIcon } from './components/icons';
+import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, SunIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon, ExclamationTriangleIcon, BellIcon, ExternalLinkIcon, ShieldCheckIcon } from './components/icons';
 import RecommendationsPanel from './components/RecommendationsPanel';
 import BacktestResults from './components/BacktestResults';
 import CodeViewer from './components/CodeViewer';
@@ -1378,19 +1378,24 @@ const Sidebar: React.FC<{
     );
 };
 
-const StatusIndicator: React.FC<{ label: string; status: 'positive' | 'neutral' | 'negative'; text: string; }> = ({ label, status, text }) => {
+const StatusIndicator: React.FC<{ label: string; status: 'positive' | 'neutral' | 'negative'; text: string; tooltip?: string; }> = ({ label, status, text, tooltip }) => {
     const colorClasses = {
         positive: 'bg-green-500',
         neutral: 'bg-gray-500',
         negative: 'bg-red-500',
     };
     return (
-        <div className="flex items-center space-x-2">
+        <div className="relative group flex items-center space-x-2">
             <span className="text-sm text-gray-400">{label}:</span>
             <div className="flex items-center space-x-1.5">
                 <div className={`w-2 h-2 rounded-full ${colorClasses[status]}`}></div>
                 <span className="text-sm font-semibold text-white">{text}</span>
             </div>
+            {tooltip && (
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-xs bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
+                    {tooltip}
+                </div>
+            )}
         </div>
     );
 };
@@ -1398,7 +1403,8 @@ const StatusIndicator: React.FC<{ label: string; status: 'positive' | 'neutral' 
 const DashboardHeader: React.FC<{
     currentView: string;
     isConnected: boolean;
-}> = ({ currentView, isConnected }) => {
+    isLiveBotActive: boolean;
+}> = ({ currentView, isConnected, isLiveBotActive }) => {
     const { environment } = useAPI();
     const title = currentView.charAt(0).toUpperCase() + currentView.slice(1);
 
@@ -1413,6 +1419,12 @@ const DashboardHeader: React.FC<{
         <div className="h-16 flex-shrink-0 bg-gray-800/30 border-b border-gray-700 flex items-center justify-between px-6">
             <h2 className="text-xl font-bold text-white">{title}</h2>
             <div className="flex items-center space-x-6">
+                 <StatusIndicator 
+                    label="Live Bot Status"
+                    status={isLiveBotActive ? 'positive' : 'negative'}
+                    text={isLiveBotActive ? 'Active' : 'Inactive'}
+                    tooltip="Export a bot from the 'Strategy' tab and run it on your computer to activate."
+                />
                  <StatusIndicator 
                     label="Environment"
                     status={isConnected ? currentEnvDetails.status : 'neutral'}
@@ -1527,6 +1539,39 @@ const LiveTradingWarningModal: React.FC<{ onAccept: () => void; onCancel: () => 
     </div>
 )};
 
+const WelcomeModal: React.FC<{ onAccept: () => void }> = ({ onAccept }) => {
+    return (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
+            <Card className="max-w-xl p-8 border-cyan-500/30">
+                <div className="text-center">
+                    <RocketIcon className="w-12 h-12 mx-auto text-cyan-400"/>
+                    <h2 className="text-2xl font-bold text-white mt-4">Welcome to Xamanix</h2>
+                    <p className="text-lg text-gray-300 mt-1">Your Professional Trading Bot Factory</p>
+                </div>
+                <div className="mt-6 text-gray-300/90 space-y-4 text-left">
+                    <p className="flex items-start">
+                        <ShieldCheckIcon className="w-6 h-6 mr-3 mt-0.5 text-green-400 flex-shrink-0" />
+                        <span>
+                            <strong>For Your Security & Reliability:</strong> This app helps you create and backtest strategies. For 24/7 trading, you will export a standalone Python script to run on your own secure computer or server.
+                        </span>
+                    </p>
+                    <p className="flex items-start">
+                        <ExclamationTriangleIcon className="w-6 h-6 mr-3 mt-0.5 text-yellow-400 flex-shrink-0" />
+                         <span>
+                             <strong>Important Note:</strong> This application does not run trades in the background of your device. Closing this app or your browser will stop all in-app activity. Only an exported bot running on your hardware can trade continuously.
+                         </span>
+                    </p>
+                </div>
+                <div className="mt-8 flex justify-center">
+                    <Button onClick={onAccept} variant="primary" className="!px-8 !py-3 !text-lg">
+                        I Understand, Let's Get Started!
+                    </Button>
+                </div>
+            </Card>
+        </div>
+    );
+};
+
 const LiveBanner: React.FC = () => (
     <div className="bg-red-600 text-white text-center py-1 text-sm font-bold flex items-center justify-center flex-shrink-0">
         <ExclamationTriangleIcon className="w-4 h-4 mr-2" />
@@ -1551,6 +1596,20 @@ function AppContent() {
     const [aiSuggestion, setAiSuggestion] = useState({ suggestion: '', isLoading: false, error: null as string | null });
     const [showLiveTradingWarning, setShowLiveTradingWarning] = useState(false);
     const [pendingConnection, setPendingConnection] = useState<{ apiKey: string; apiSecret: string, environment: 'testnet' | 'mainnet' } | null>(null);
+    const [showWelcomeModal, setShowWelcomeModal] = useState<boolean>(false);
+    const [isLiveBotActive, setIsLiveBotActive] = useState<boolean>(false);
+
+    useEffect(() => {
+        const welcomeSeen = localStorage.getItem('xamanix-welcome-seen');
+        if (!welcomeSeen) {
+            setShowWelcomeModal(true);
+        }
+    }, []);
+
+    const handleAcceptWelcome = () => {
+        localStorage.setItem('xamanix-welcome-seen', 'true');
+        setShowWelcomeModal(false);
+    };
 
     const getIconForType = (type: Notification['type']): React.ReactElement => {
         switch (type) {
@@ -1801,6 +1860,7 @@ function AppContent() {
 
     return (
         <div className="flex h-screen bg-gray-900 text-gray-100">
+            {showWelcomeModal && <WelcomeModal onAccept={handleAcceptWelcome} />}
             {showLiveTradingWarning && pendingConnection && (
                 <LiveTradingWarningModal
                     onAccept={handleConfirmLiveTrading}
@@ -1822,6 +1882,7 @@ function AppContent() {
                 <DashboardHeader
                     currentView={view}
                     isConnected={isConnected}
+                    isLiveBotActive={isLiveBotActive}
                 />
                 <div className="flex-1 overflow-y-auto bg-black/20">
                     {renderView()}

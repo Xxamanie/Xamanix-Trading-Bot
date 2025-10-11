@@ -205,3 +205,9 @@ export const ExternalLinkIcon = ({ className = "h-4 w-4" }: { className?: string
         <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
     </svg>
 );
+
+export const ShieldCheckIcon = ({ className = "h-6 w-6" }: { className?: string }): React.ReactElement => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 20.917L12 23l9-2.083c0-3.767-1.33-7.4-3.618-10.084z" />
+    </svg>
+);
