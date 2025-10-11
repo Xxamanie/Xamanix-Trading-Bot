@@ -241,3 +241,58 @@ export async function getTradingSuggestion(context: string): Promise<string> {
 
     return response.text.trim();
 }
+
+export async function generateLiveBotScript(strategyCode: string): Promise<string> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+    const prompt = `
+    You are an expert Python programmer creating a standalone trading bot script for the Bybit exchange.
+    Your task is to take a Python script containing backtesting logic and convert it into a fully functional, standalone live trading script.
+
+    **Instructions:**
+
+    1.  **Integrate API Client:** Add the necessary code to interact with the Bybit API. Use the standard 'requests', 'time', 'hmac', and 'hashlib' libraries. Create a helper class or functions for making signed GET and POST requests.
+    2.  **Replace Data Loading:** Remove any synthetic data generation (like \`_load_data\`). Replace it with a live function that fetches the latest market data (k-lines/candles) from the Bybit API v5 endpoint: \`/v5/market/kline\`.
+    3.  **Implement Main Trading Loop:** Create an infinite \`while True:\` loop as the main execution block. Inside the loop, the script should:
+        a. Fetch the latest market data for the configured symbol and timeframe.
+        b. Apply the trading strategy logic (e.g., calculate indicators like MACD).
+        c. Determine if a new trade should be entered or an existing one exited based on the latest signal.
+        d. Fetch the current position size from Bybit to avoid duplicate trades.
+        e. Place market orders to enter or exit trades using the Bybit API v5 endpoint: \`/v5/order/create\`.
+        f. Print clear log messages for actions taken (e.g., "Entering LONG position", "Closing SHORT position").
+        g. Include \`time.sleep()\` at the end of the loop to pause execution. The sleep duration should be appropriate for the strategy's timeframe (e.g., 60 seconds for a '1m' timeframe, 3600 for '1h').
+    4.  **Configuration and Security:**
+        a. At the top of the script, create clear placeholders for the user's API Key and Secret:
+           \`API_KEY = "YOUR_BYBIT_API_KEY_HERE"\`
+           \`API_SECRET = "YOUR_BYBIT_API_SECRET_HERE"\`
+        b. Use a configuration dictionary (\`cfg\`) for strategy parameters (symbol, timeframe, trade_size_usd, etc.) so the user can easily tweak them.
+    5.  **Add Instructions and Dependencies:**
+        a. At the very top of the script, in a multi-line comment, provide clear, simple instructions for the user:
+           - Required libraries to install (e.g., \`pip install requests pandas\`).
+           - How to add their API keys.
+           - How to run the script from their terminal (\`python live_trading_bot.py\`).
+    6.  **Final Output:**
+        a. The output MUST be only the complete, raw Python code.
+        b. Do not include any explanations, markdown formatting, or text outside of the Python script itself.
+
+    --- BASE STRATEGY SCRIPT (for logic reference) ---
+    \`\`\`python
+    ${strategyCode}
+    \`\`\`
+    `;
+
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+    });
+    
+    let finalCode = response.text.trim();
+    // Clean up potential markdown formatting from the response
+    if (finalCode.startsWith('```python')) {
+      finalCode = finalCode.substring(9);
+    }
+    if (finalCode.endsWith('```')) {
+      finalCode = finalCode.substring(0, finalCode.length - 3);
+    }
+
+    return finalCode.trim();
+}

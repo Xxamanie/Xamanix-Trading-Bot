@@ -7,6 +7,8 @@ interface APIContextType {
   setApiSecret: (secret: string) => void;
   isConnected: boolean;
   setIsConnected: (status: boolean) => void;
+  environment: 'testnet' | 'mainnet';
+  setEnvironment: (env: 'testnet' | 'mainnet') => void;
 }
 
 const APIContext = createContext<APIContextType | undefined>(undefined);
@@ -16,6 +18,8 @@ export const APIProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('xamanix-apiKey') || '');
   const [apiSecret, setApiSecret] = useState<string>(() => localStorage.getItem('xamanix-apiSecret') || '');
   const [isConnected, setIsConnected] = useState<boolean>(() => localStorage.getItem('xamanix-isConnected') === 'true');
+  const [environment, setEnvironment] = useState<'testnet' | 'mainnet'>(() => (localStorage.getItem('xamanix-environment') as 'testnet' | 'mainnet') || 'testnet');
+
 
   // Persist state changes to localStorage
   useEffect(() => {
@@ -42,8 +46,16 @@ export const APIProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [isConnected]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('xamanix-environment', environment);
+    } catch (e) {
+      console.error("Failed to save environment to localStorage", e);
+    }
+  }, [environment]);
+
   return (
-    <APIContext.Provider value={{ apiKey, setApiKey, apiSecret, setApiSecret, isConnected, setIsConnected }}>
+    <APIContext.Provider value={{ apiKey, setApiKey, apiSecret, setApiSecret, isConnected, setIsConnected, environment, setEnvironment }}>
       {children}
     </APIContext.Provider>
   );

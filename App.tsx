@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification, Order } from './types';
-import { MOCK_PORTFOLIO_HISTORY, MOCK_ASSETS, MOCK_POSITIONS, MOCK_TRADE_VIEW_DATA, DEFAULT_SCRIPT } from './constants';
-import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, SunIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon, ExclamationTriangleIcon, BellIcon } from './components/icons';
+import { MOCK_PORTFOLIO_HISTORY, MOCK_TRADE_VIEW_DATA, DEFAULT_SCRIPT } from './constants';
+import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, SunIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon, ExclamationTriangleIcon, BellIcon, ExternalLinkIcon } from './components/icons';
 import RecommendationsPanel from './components/RecommendationsPanel';
 import BacktestResults from './components/BacktestResults';
 import CodeViewer from './components/CodeViewer';
-import { analyzeCode, runBacktest, generateEnhancedCode, getTradingSuggestion } from './services/geminiService';
+import { analyzeCode, runBacktest, generateEnhancedCode, getTradingSuggestion, generateLiveBotScript } from './services/geminiService';
 import { APIProvider, useAPI } from './contexts/APIContext';
-import { verifyAndFetchBalances, transferFunds, clearSessionBalances, executeLiveTrade, closeLivePosition } from './services/bybitService';
+import { verifyAndFetchBalances, fetchPositions, executeLiveTrade, closeLivePosition } from './services/bybitService';
 import { LinkIcon } from './components/icons';
 
 
@@ -35,17 +35,6 @@ const Button: React.FC<{ children: React.ReactNode; onClick?: (e: React.MouseEve
     : 'bg-gray-700 text-gray-200 hover:bg-gray-600 focus:ring-gray-500';
   return <button type={type} onClick={onClick} disabled={disabled} className={`${baseClasses} ${variantClasses} ${className}`}>{children}</button>;
 };
-
-const ToggleSwitch: React.FC<{ isEnabled: boolean; onToggle: () => void; isDisabled?: boolean; }> = ({ isEnabled, onToggle, isDisabled = false }) => (
-  <button
-    onClick={onToggle}
-    disabled={isDisabled}
-    className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors ${isEnabled ? 'bg-green-500' : 'bg-gray-600'} ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-    aria-label="Toggle Bot Status"
-  >
-    <span className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform ${isEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-  </button>
-);
 
 const Input: React.FC<{ label: string; type?: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder?: string, leadingAddon?: string; disabled?: boolean; name?: string; }> = ({ label, type = "text", value, onChange, placeholder, leadingAddon, disabled = false, name }) => (
     <div>
@@ -84,18 +73,13 @@ const Textarea: React.FC<{ label: string; value: string; onChange: (e: React.Cha
 );
 
 interface AIStatusPanelProps {
-    isBotRunning: boolean;
-    onToggleBot: () => void;
-    isDeployable: boolean;
     realizedPnl: number;
     activityLog: ActivityLogEntry[];
-    onWithdrawProfits: () => void;
     onGetSuggestion: () => Promise<void>;
     aiSuggestion: { suggestion: string, isLoading: boolean, error: string | null };
-    isAdminVisible: boolean;
 }
 
-const AIStatusPanel: React.FC<AIStatusPanelProps> = ({ isBotRunning, onToggleBot, isDeployable, realizedPnl, activityLog, onWithdrawProfits, onGetSuggestion, aiSuggestion, isAdminVisible }) => {
+const AIStatusPanel: React.FC<AIStatusPanelProps> = ({ realizedPnl, activityLog, onGetSuggestion, aiSuggestion }) => {
     const logContainerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -116,33 +100,15 @@ const AIStatusPanel: React.FC<AIStatusPanelProps> = ({ isBotRunning, onToggleBot
 
     return (
         <Card className="flex flex-col h-full">
-            <h3 className="text-lg font-semibold text-white p-4 border-b border-gray-700 flex-shrink-0">AI Strategy Status</h3>
+            <h3 className="text-lg font-semibold text-white p-4 border-b border-gray-700 flex-shrink-0">AI Assisted Trading</h3>
             <div className="p-4 space-y-4 flex-shrink-0">
-                <div className="flex justify-between items-center">
-                    <div className="relative group">
-                        <div className="flex items-center">
-                            <label className="font-medium text-gray-300 mr-3">Use AI Strategy</label>
-                            <ToggleSwitch isEnabled={isBotRunning} onToggle={onToggleBot} isDisabled={!isDeployable} />
-                        </div>
-                        {!isDeployable && (
-                            <div className="absolute top-full mt-2 w-max bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                Deploy a strategy from the 'Strategy' view to enable the bot.
-                            </div>
-                        )}
-                    </div>
-                </div>
                 <div>
-                    <p className="text-sm text-gray-400">Live Segregated PnL</p>
+                    <p className="text-sm text-gray-400">Session Realized PnL</p>
                     <p className={`text-2xl font-bold ${realizedPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                          {realizedPnl >= 0 ? '+' : '-'}${Math.abs(realizedPnl).toFixed(2)}
                     </p>
                 </div>
-                <Button onClick={onWithdrawProfits} disabled={!isAdminVisible && realizedPnl <= 0} className="w-full">
-                     {isAdminVisible 
-                        ? (realizedPnl > 0 ? 'Withdraw via API (Admin)' : 'Reset PnL to Zero') 
-                        : 'Withdraw Profits to Main Capital'
-                    }
-                </Button>
+                 <p className="text-xs text-gray-400">The panel below tracks manual trades and AI suggestions. Export a full AI bot from the 'Strategy' tab.</p>
             </div>
             <div className="px-4 pb-4 space-y-3">
                  <Button onClick={onGetSuggestion} disabled={aiSuggestion.isLoading} className="w-full !py-2.5 flex items-center justify-center">
@@ -172,7 +138,7 @@ const AIStatusPanel: React.FC<AIStatusPanelProps> = ({ isBotRunning, onToggleBot
                                 <span className="text-gray-300">{log.message}</span>
                             </div>
                         </div>
-                    )) : <p className="text-center text-sm text-gray-500 pt-8">Bot is idle. Start the AI Strategy to see live activity.</p>}
+                    )) : <p className="text-center text-sm text-gray-500 pt-8">Connect to an exchange to begin trading.</p>}
                 </div>
             </div>
         </Card>
@@ -185,23 +151,18 @@ interface DashboardViewProps {
     positions: Position[];
     realizedPnl: number;
     assets: Asset[];
-    onManualClosePosition: (positionId: string) => void;
+    onManualClosePosition: (position: Position) => void;
     // Props for AIStatusPanel
-    isBotRunning: boolean;
-    onToggleBot: () => void;
-    isDeployable: boolean;
     activityLog: ActivityLogEntry[];
-    onWithdrawProfits: () => void;
     onGetSuggestion: () => Promise<void>;
     aiSuggestion: { suggestion: string; isLoading: boolean; error: string | null; };
-    isAdminVisible: boolean;
 }
 
 const DashboardView: React.FC<DashboardViewProps> = ({ history, positions, realizedPnl, assets, onManualClosePosition, ...aiStatusPanelProps }) => {
     const chartRef = useRef<HTMLCanvasElement | null>(null);
     const chartInstance = useRef<any | null>(null);
 
-    const totalAssetsValue = assets.reduce((sum, asset) => sum + asset.usdValue, 0);
+    const totalAssetsValue = assets.find(a => a.name === 'USDT')?.usdValue ?? 0;
     const openPnl = positions.reduce((acc, pos) => acc + pos.pnl, 0);
     const totalValue = totalAssetsValue + openPnl;
     const yesterdaysValue = history.equity[history.equity.length - 2] ?? totalValue;
@@ -253,9 +214,9 @@ const DashboardView: React.FC<DashboardViewProps> = ({ history, positions, reali
                             <p className="text-sm text-gray-400">Total Portfolio Value</p>
                             <p className="text-4xl font-bold text-white">${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                         </div>
-                        <div className={`text-right ${todaysChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            <p className="font-semibold">{todaysChange >= 0 ? '+' : ''}{todaysChange.toFixed(2)} ({todaysChangePct.toFixed(2)}%)</p>
-                            <p className="text-sm">Today</p>
+                        <div className={`text-right ${openPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            <p className="font-semibold">{openPnl >= 0 ? '+' : ''}{openPnl.toFixed(2)}</p>
+                            <p className="text-sm">Unrealized PnL</p>
                         </div>
                     </div>
                     <div className="h-48 mt-4">
@@ -281,11 +242,11 @@ const DashboardView: React.FC<DashboardViewProps> = ({ history, positions, reali
                                         <div className="text-right">
                                             <p className="text-sm text-gray-400">PnL</p>
                                             <p className={`font-semibold ${pos.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                                {pos.pnl >= 0 ? '+' : '-'}${Math.abs(pos.pnl).toFixed(2)} ({pos.pnlPercent.toFixed(2)}%)
+                                                {pos.pnl >= 0 ? '+' : '-'}${Math.abs(pos.pnl).toFixed(2)}
                                             </p>
                                         </div>
                                         <div className="text-right">
-                                            <Button onClick={() => onManualClosePosition(pos.id)} className="!py-1.5 !px-3 text-sm">Close</Button>
+                                            <Button onClick={() => onManualClosePosition(pos)} className="!py-1.5 !px-3 text-sm">Close</Button>
                                         </div>
                                     </div>
                                 </div>
@@ -304,7 +265,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ history, positions, reali
                     <p className={`text-4xl font-bold ${realizedPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                         {realizedPnl >= 0 ? '+' : '-'}${Math.abs(realizedPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
-                    <p className="text-xs text-gray-500 mt-2">Cumulative profit/loss from all closed bot trades.</p>
+                    <p className="text-xs text-gray-500 mt-2">Cumulative profit/loss from all closed trades in this session.</p>
                 </Card>
                 <div className="flex-grow min-h-0">
                      <AIStatusPanel {...aiStatusPanelProps} realizedPnl={realizedPnl} />
@@ -363,12 +324,11 @@ const OrderBook: React.FC<{ bids: Order[]; asks: Order[]; }> = ({ bids, asks }) 
 interface TradeViewProps {
   data: TradeViewData;
   onExecuteTrade: (details: { asset: string, direction: 'LONG' | 'SHORT', amountUSD: number }) => void;
-  isBotRunning: boolean;
   isConnected: boolean;
 }
 
 const TradeView: React.FC<TradeViewProps> = (props) => {
-    const { data, onExecuteTrade, isBotRunning, isConnected } = props;
+    const { data, onExecuteTrade, isConnected } = props;
     const chartRef = useRef<HTMLCanvasElement | null>(null);
     const chartInstance = useRef<any | null>(null);
     const [market, setMarket] = useState(Object.keys(data)[0]);
@@ -379,10 +339,9 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
 
     const marketData = data[market]?.[candleFrequency];
 
-    const [risk, setRisk] = useState('1.5');
     const [stopLoss, setStopLoss] = useState('2.0');
-    const [takeProfit, setTakeProfit] = useState('3.0');
     const [tradeAmount, setTradeAmount] = useState('100');
+    const [isTrading, setIsTrading] = useState(false);
 
     useEffect(() => {
         if (!chartRef.current || !marketData) return;
@@ -565,12 +524,14 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
 
     }, [marketData, market, candleFrequency]);
     
-    const handleTrade = (direction: 'LONG' | 'SHORT') => {
+    const handleTrade = async (direction: 'LONG' | 'SHORT') => {
         const amount = parseFloat(tradeAmount);
         if (isNaN(amount) || amount <= 0) {
             console.error("Invalid trade amount");
             return;
         }
+        
+        setIsTrading(true);
 
         if (chartInstance.current) {
             const priceDataset = chartInstance.current.data.datasets[0];
@@ -590,11 +551,15 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
             chartInstance.current.update('quiet');
         }
 
-        onExecuteTrade({
-            asset: market,
-            direction: direction,
-            amountUSD: amount
-        });
+        try {
+            await onExecuteTrade({
+                asset: market,
+                direction: direction,
+                amountUSD: amount
+            });
+        } finally {
+             setIsTrading(false);
+        }
     };
 
 
@@ -632,21 +597,23 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
                                 onClick={() => handleTrade('LONG')} 
                                 variant="primary" 
                                 className="!bg-green-600 !hover:bg-green-700 !focus:ring-green-500 px-6 py-2.5 w-full"
-                                disabled={isBotRunning || !isConnected}
+                                disabled={isTrading || !isConnected}
                             >
-                                Buy / Long
+                                {isTrading ? <LoadingIcon /> : 'Buy / Long'}
                             </Button>
                             <Button 
                                 onClick={() => handleTrade('SHORT')} 
                                 variant="primary" 
                                 className="!bg-red-600 !hover:bg-red-700 !focus:ring-red-500 px-6 py-2.5 w-full"
-                                disabled={isBotRunning || !isConnected}
+                                disabled={isTrading || !isConnected}
                             >
-                                Sell / Short
+                               {isTrading ? <LoadingIcon /> : 'Sell / Short'}
                             </Button>
-                                {(isBotRunning || !isConnected) && (
-                                <div className="absolute bottom-full mb-2 w-max bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                                        {!isConnected ? "Connect to exchange to trade." : "Manual trading is disabled while AI Strategy is active."}
+                                {!isConnected && (
+                                <div className="absolute bottom-full mb-2 w-full text-center">
+                                <span className="bg-gray-700 text-white text-xs rounded py-1 px-2">
+                                        Connect to exchange to trade.
+                                </span>
                                 </div>
                             )}
                         </div>
@@ -687,7 +654,8 @@ const WalletView: React.FC<{ assets: Asset[], setView: (view: string) => void }>
                 <h3 className="text-lg font-semibold text-white p-4 border-b border-gray-700">Wallet Balances</h3>
                  {assets.length === 0 ? (
                     <div className="text-center text-gray-500 py-12">
-                        <p>No assets found in your wallet.</p>
+                        <LoadingIcon className="w-8 h-8 mx-auto" />
+                        <p className="mt-2">Loading wallet balances...</p>
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
@@ -721,8 +689,8 @@ const WalletView: React.FC<{ assets: Asset[], setView: (view: string) => void }>
 };
 
 
-const SettingsView: React.FC<{ onConnectAttempt: (apiKey: string, apiSecret: string) => Promise<void>, onDisconnect: () => void, addNotification: (message: string, type: Notification['type']) => void }> = ({ onConnectAttempt, onDisconnect, addNotification }) => {
-    const { apiKey, setApiKey, apiSecret, setApiSecret, isConnected } = useAPI();
+const SettingsView: React.FC<{ onConnectAttempt: (apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet') => Promise<void>, onDisconnect: () => void, addNotification: (message: string, type: Notification['type']) => void }> = ({ onConnectAttempt, onDisconnect, addNotification }) => {
+    const { apiKey, setApiKey, apiSecret, setApiSecret, isConnected, environment, setEnvironment } = useAPI();
     const [isVerifying, setIsVerifying] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -730,7 +698,7 @@ const SettingsView: React.FC<{ onConnectAttempt: (apiKey: string, apiSecret: str
         setIsVerifying(true);
         setError(null);
         try {
-            await onConnectAttempt(apiKey, apiSecret);
+            await onConnectAttempt(apiKey, apiSecret, environment);
         } catch (e: any) {
             const errorMessage = e.message || "An unknown error occurred.";
             setError(errorMessage);
@@ -751,12 +719,59 @@ const SettingsView: React.FC<{ onConnectAttempt: (apiKey: string, apiSecret: str
         <div className="p-6 space-y-8 max-w-2xl mx-auto">
             <Card className="p-6">
                 <h3 className="text-lg font-semibold text-white mb-4">API Configuration</h3>
+                <div className="space-y-4 mb-6">
+                    <label className="block text-sm font-medium text-gray-400 mb-2">Environment</label>
+                    <div className="flex space-x-4">
+                        <label className="flex items-center">
+                            <input type="radio" name="environment" value="testnet" checked={environment === 'testnet'} onChange={() => setEnvironment('testnet')} className="h-4 w-4 text-cyan-600 bg-gray-700 border-gray-600 focus:ring-cyan-500" disabled={isConnected} />
+                            <span className="ml-2 text-gray-300">Testnet (Paper Trading)</span>
+                        </label>
+                        <label className="flex items-center">
+                            <input type="radio" name="environment" value="mainnet" checked={environment === 'mainnet'} onChange={() => setEnvironment('mainnet')} className="h-4 w-4 text-cyan-600 bg-gray-700 border-gray-600 focus:ring-cyan-500" disabled={isConnected} />
+                            <span className="ml-2 text-gray-300">Mainnet (Live Trading)</span>
+                        </label>
+                    </div>
+                </div>
+
+                {environment === 'testnet' && (
+                    <div className="bg-yellow-900/30 border border-yellow-700/50 rounded-lg p-4 mb-6">
+                        <div className="flex items-start">
+                            <ExclamationTriangleIcon className="h-5 w-5 text-yellow-400 mr-3 mt-0.5 flex-shrink-0" />
+                            <div>
+                                <h4 className="font-semibold text-yellow-300">You are in Testnet Mode</h4>
+                                <p className="text-sm text-yellow-300/80 mt-1">
+                                    Testnet uses live market data with play money. This is a critical step for testing strategies without financial risk. Ensure you are using API keys generated from your exchange's Testnet platform.
+                                </p>
+                                <a href="https://testnet.bybit.com/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-sm font-semibold text-cyan-400 hover:text-cyan-300 mt-2">
+                                    Get Bybit Testnet Keys <ExternalLinkIcon className="ml-1.5" />
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                 {environment === 'mainnet' && (
+                    <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-4 mb-6">
+                        <div className="flex items-start">
+                            <ExclamationTriangleIcon className="h-5 w-5 text-red-400 mr-3 mt-0.5 flex-shrink-0" />
+                            <div>
+                                <h4 className="font-semibold text-red-300">You are in Mainnet Mode</h4>
+                                <p className="text-sm text-red-300/80 mt-1">
+                                    <strong>EXTREME CAUTION:</strong> You are about to connect to a live trading environment. All actions will be performed with REAL funds from your exchange account. Double-check your strategy and settings before proceeding. The creators of this application are not liable for any financial losses.
+                                </p>
+                                <a href="https://www.bybit.com/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-sm font-semibold text-cyan-400 hover:text-cyan-300 mt-2">
+                                    Go to Bybit Mainnet <ExternalLinkIcon className="ml-1.5" />
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                
                 <p className="text-sm text-gray-400 mb-6">
-                    Enter your Bybit (or other compatible exchange) API key and secret. Your keys are stored securely and never exposed.
+                    Enter your {environment.charAt(0).toUpperCase() + environment.slice(1)} API key and secret. Your keys are stored locally and never exposed.
                 </p>
                 <div className="space-y-4">
-                    <Input label="API Key" value={apiKey} onChange={e => setApiKey(e.target.value)} disabled={isConnected} />
-                    <Input label="API Secret" type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)} disabled={isConnected} />
+                    <Input label="API Key" value={apiKey} onChange={e => setApiKey(e.target.value)} disabled={isConnected} placeholder={`Enter ${environment.charAt(0).toUpperCase() + environment.slice(1)} API Key`} />
+                    <Input label="API Secret" type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)} disabled={isConnected} placeholder={`Enter ${environment.charAt(0).toUpperCase() + environment.slice(1)} API Secret`}/>
                     {error && <p className="text-sm text-red-400">{error}</p>}
                     <div className="pt-2 flex items-center justify-between">
                         {!isConnected ? (
@@ -768,7 +783,7 @@ const SettingsView: React.FC<{ onConnectAttempt: (apiKey: string, apiSecret: str
                             </Button>
                         ) : (
                              <div className="flex items-center space-x-4">
-                                <div className="flex items-center text-green-400"><CheckCircleIcon className="w-5 h-5 mr-2" /> Connected</div>
+                                <div className="flex items-center text-green-400"><CheckCircleIcon className="w-5 h-5 mr-2" /> Connected to {environment}</div>
                                 <Button onClick={handleDisconnect} variant="secondary">Disconnect</Button>
                             </div>
                         )}
@@ -792,7 +807,7 @@ const SettingsView: React.FC<{ onConnectAttempt: (apiKey: string, apiSecret: str
     );
 };
 
-const StrategyView: React.FC<{ onDeployScript: (code: string) => void }> = ({ onDeployScript }) => {
+const StrategyView: React.FC<{ addNotification: (message: string, type: Notification['type']) => void }> = ({ addNotification }) => {
     const [originalCode, setOriginalCode] = useState<string>(DEFAULT_SCRIPT);
     const [enhancedCode, setEnhancedCode] = useState<string>('');
   
@@ -802,12 +817,12 @@ const StrategyView: React.FC<{ onDeployScript: (code: string) => void }> = ({ on
   
     const [appliedRecommendations, setAppliedRecommendations] = useState<Set<string>>(new Set());
     const [isGeneratingScript, setIsGeneratingScript] = useState<boolean>(false);
-    const [isDeployed, setIsDeployed] = useState<boolean>(false);
   
     const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
     const [isBacktestRunning, setIsBacktestRunning] = useState<boolean>(false);
     const [backtestError, setBacktestError] = useState<string | null>(null);
     const [activeBacktest, setActiveBacktest] = useState<'none' | 'original' | 'enhanced'>('none');
+    const [isExporting, setIsExporting] = useState<boolean>(false);
 
     const handleAnalyze = async () => {
         setIsLoadingAnalysis(true);
@@ -818,7 +833,6 @@ const StrategyView: React.FC<{ onDeployScript: (code: string) => void }> = ({ on
         setBacktestResult(null);
         setBacktestError(null);
         setActiveBacktest('none');
-        setIsDeployed(false);
         try {
             const result = await analyzeCode(originalCode);
             setAnalysisResult(result);
@@ -833,7 +847,6 @@ const StrategyView: React.FC<{ onDeployScript: (code: string) => void }> = ({ on
     };
 
     const handleToggleRecommendation = (title: string) => {
-        setIsDeployed(false);
         setAppliedRecommendations(prev => {
             const newSet = new Set(prev);
             if (newSet.has(title)) {
@@ -849,7 +862,6 @@ const StrategyView: React.FC<{ onDeployScript: (code: string) => void }> = ({ on
         if (!analysisResult || appliedRecommendations.size === 0) return;
         setIsGeneratingScript(true);
         setEnhancedCode('');
-        setIsDeployed(false);
         try {
             const selectedRecommendations = analysisResult.recommendations.filter(rec => appliedRecommendations.has(rec.title));
             const generatedCode = await generateEnhancedCode(originalCode, selectedRecommendations);
@@ -861,11 +873,33 @@ const StrategyView: React.FC<{ onDeployScript: (code: string) => void }> = ({ on
         }
     };
     
-    const handleDeploy = () => {
-        const codeToDeploy = enhancedCode || originalCode;
-        if (!codeToDeploy) return;
-        onDeployScript(codeToDeploy);
-        setIsDeployed(true);
+    const handleExportScript = async () => {
+        const codeToExport = enhancedCode || originalCode;
+        if (!codeToExport) return;
+        
+        setIsExporting(true);
+        try {
+            const liveBotScript = await generateLiveBotScript(codeToExport);
+            
+            // Trigger download
+            const blob = new Blob([liveBotScript], { type: 'text/x-python' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'live_trading_bot.py';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            addNotification("Live bot script exported successfully!", 'success');
+
+        } catch (error) {
+            console.error("Failed to export live bot script:", error);
+            addNotification("Failed to export script. See console for details.", 'error');
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     const handleRunBacktest = async (codeToRun: 'original' | 'enhanced') => {
@@ -893,7 +927,7 @@ const StrategyView: React.FC<{ onDeployScript: (code: string) => void }> = ({ on
                 <div className="flex flex-col items-center justify-center h-full text-center">
                     <div className="max-w-3xl w-full bg-gray-800/50 border border-gray-700 rounded-xl shadow-lg p-8">
                         <h2 className="text-2xl font-bold text-white mb-2">AI Strategy Enhancer</h2>
-                        <p className="text-gray-400 mb-6">Paste your Python trading script below to analyze, enhance, or deploy it directly.</p>
+                        <p className="text-gray-400 mb-6">Paste your Python trading script below to analyze, enhance, and export a standalone bot.</p>
                         <textarea
                             value={originalCode}
                             onChange={(e) => setOriginalCode(e.target.value)}
@@ -909,11 +943,12 @@ const StrategyView: React.FC<{ onDeployScript: (code: string) => void }> = ({ on
                                 <SparklesIcon /> <span className="ml-2">Analyze Script</span>
                             </button>
                              <button
-                                onClick={handleDeploy}
-                                disabled={!originalCode.trim() || isDeployed}
+                                onClick={handleExportScript}
+                                disabled={!originalCode.trim() || isExporting}
                                 className="w-full sm:w-auto bg-gray-700 hover:bg-gray-600 disabled:bg-gray-600/50 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center transition-colors shadow-lg"
                             >
-                                <RocketIcon /> <span className="ml-2">{isDeployed ? 'Deployed' : 'Deploy Original Strategy'}</span>
+                                {isExporting ? <LoadingIcon /> : <RocketIcon />}
+                                <span className="ml-2">{isExporting ? 'Exporting...' : 'Export Original as Bot'}</span>
                             </button>
                         </div>
                     </div>
@@ -967,8 +1002,8 @@ const StrategyView: React.FC<{ onDeployScript: (code: string) => void }> = ({ on
                             isLoading={isGeneratingScript}
                             isBacktestRunning={isBacktestRunning && activeBacktest === 'enhanced'}
                             onRunBacktest={() => handleRunBacktest('enhanced')}
-                            onDeployScript={handleDeploy}
-                            isDeployed={isDeployed}
+                            onExportScript={handleExportScript}
+                            isExporting={isExporting}
                         />
                     </div>
                 </div>
@@ -1110,9 +1145,9 @@ const AboutView: React.FC = () => (
                         <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>AI Script Analysis:</strong> Get deep insights into your strategy's parameters and logic.</span></li>
                         <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Intelligent Recommendations:</strong> Receive actionable suggestions for improving risk management, signal confirmation, and more.</span></li>
                         <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>One-Click Backtesting:</strong> Instantly run detailed backtests on both original and AI-enhanced scripts.</span></li>
-                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Seamless Deployment:</strong> Deploy your optimized strategy to a simulated live environment with a single click.</span></li>
-                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Real-Time Monitoring:</strong> Keep track of your bot's performance, open positions, and PnL through an intuitive dashboard.</span></li>
-                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Exchange Integration:</strong> Connect securely to your exchange account to manage your portfolio.</span></li>
+                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Export Standalone Bots:</strong> Generate complete, live-ready Python bots to run on your own hardware.</span></li>
+                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Real-Time Monitoring:</strong> Keep track of your manual trades, open positions, and PnL through an intuitive dashboard.</span></li>
+                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Live Exchange Integration:</strong> Connect securely to your Bybit account to manage your portfolio and execute manual trades.</span></li>
                     </ul>
                 </div>
             </div>
@@ -1362,23 +1397,26 @@ const StatusIndicator: React.FC<{ label: string; status: 'positive' | 'neutral' 
 
 const DashboardHeader: React.FC<{
     currentView: string;
-    isBotRunning: boolean;
-    isDeployable: boolean;
     isConnected: boolean;
-}> = ({ currentView, isBotRunning, isDeployable, isConnected }) => {
+}> = ({ currentView, isConnected }) => {
+    const { environment } = useAPI();
     const title = currentView.charAt(0).toUpperCase() + currentView.slice(1);
 
-    const botStatus = isDeployable ? (isBotRunning ? 'Active' : 'Idle') : 'Not Deployed';
-    const botStatusColor = isDeployable ? (isBotRunning ? 'positive' : 'neutral') : 'negative';
+    const environmentDetails = {
+        testnet: { text: 'Testnet', status: 'positive' as const },
+        mainnet: { text: 'Mainnet', status: 'negative' as const }
+    };
+
+    const currentEnvDetails = environmentDetails[environment];
     
     return (
         <div className="h-16 flex-shrink-0 bg-gray-800/30 border-b border-gray-700 flex items-center justify-between px-6">
             <h2 className="text-xl font-bold text-white">{title}</h2>
             <div className="flex items-center space-x-6">
-                <StatusIndicator 
-                    label="AI Bot"
-                    status={botStatusColor}
-                    text={botStatus}
+                 <StatusIndicator 
+                    label="Environment"
+                    status={isConnected ? currentEnvDetails.status : 'neutral'}
+                    text={isConnected ? currentEnvDetails.text : 'N/A'}
                 />
                 <StatusIndicator 
                     label="Exchange"
@@ -1427,32 +1465,72 @@ const NotificationContainer: React.FC<{ notifications: Notification[]; onDismiss
     </div>
 );
 
-const LiveTradingWarningModal: React.FC<{ onAccept: () => void; onCancel: () => void; }> = ({ onAccept, onCancel }) => (
+const LiveTradingWarningModal: React.FC<{ onAccept: () => void; onCancel: () => void; environment: 'testnet' | 'mainnet'; }> = ({ onAccept, onCancel, environment }) => {
+    
+    const details = {
+        testnet: {
+            title: 'Connect to Testnet?',
+            subtitle: 'You are connecting to a live paper trading environment.',
+            color: 'border-yellow-500/50',
+            icon: <ExclamationTriangleIcon className="w-10 h-10 text-yellow-400 mr-4 flex-shrink-0" />,
+            points: [
+                'Trades are executed against live market data.',
+                'All funds used are play money provided by the exchange\'s Testnet.',
+                'This is a crucial step for testing strategies without financial risk.'
+            ],
+             buttonClass: '!bg-yellow-600 hover:!bg-yellow-700 !focus:ring-yellow-500 text-white'
+        },
+        mainnet: {
+            title: 'WARNING: Connect to Mainnet?',
+            subtitle: 'You are about to execute trades with REAL FUNDS.',
+            color: 'border-red-500/50',
+            icon: <ExclamationTriangleIcon className="w-10 h-10 text-red-400 mr-4 flex-shrink-0" />,
+            points: [
+                'This action connects to your live exchange account.',
+                'All trades executed by the AI or manually will use your REAL account balance.',
+                'Financial losses are possible and are your sole responsibility.',
+                'Ensure you understand the risks and have thoroughly tested your strategy.'
+            ],
+            buttonClass: '!bg-red-600 hover:!bg-red-700 !focus:ring-red-500 text-white'
+        }
+    };
+    
+    const currentDetails = details[environment];
+    
+    return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
-        <Card className="max-w-lg p-8 border-yellow-500/50">
+        <Card className={`max-w-lg p-8 ${currentDetails.color}`}>
             <div className="flex items-center">
-                <ExclamationTriangleIcon className="w-10 h-10 text-yellow-400 mr-4 flex-shrink-0" />
+                {currentDetails.icon}
                 <div>
-                    <h2 className="text-2xl font-bold text-white">Enable Live Trading?</h2>
-                    <p className="text-yellow-200 mt-1">You are about to connect to the live exchange.</p>
+                    <h2 className="text-2xl font-bold text-white">{currentDetails.title}</h2>
+                    <p className="text-yellow-200 mt-1">{currentDetails.subtitle}</p>
                 </div>
             </div>
             <div className="mt-6 text-gray-300 space-y-3">
                 <p>By proceeding, you acknowledge and agree to the following:</p>
                 <ul className="list-disc list-inside space-y-2 text-sm pl-2">
-                    <li>All trades executed will use <strong className="text-white">real funds</strong> from your exchange account.</li>
-                    <li>This is a high-fidelity simulation and does not connect to a real exchange, but it will behave as if it does. Do not use real API keys.</li>
-                    <li>The creators of this application are not liable for any financial losses incurred.</li>
+                    {currentDetails.points.map((point, i) => (
+                        <li key={i} dangerouslySetInnerHTML={{ __html: point.replace(/REAL/g, '<strong class="text-white">REAL</strong>') }} />
+                    ))}
+                     <li>The creators of this application are not liable for any data discrepancies or financial losses.</li>
                 </ul>
                 <p>Please trade responsibly.</p>
             </div>
             <div className="mt-8 flex justify-end space-x-4">
                 <Button onClick={onCancel} variant="secondary">Cancel</Button>
-                <Button onClick={onAccept} className="!bg-yellow-600 hover:!bg-yellow-700 !focus:ring-yellow-500 text-white">
+                <Button onClick={onAccept} className={currentDetails.buttonClass}>
                     I Understand and Accept the Risks
                 </Button>
             </div>
         </Card>
+    </div>
+)};
+
+const LiveBanner: React.FC = () => (
+    <div className="bg-red-600 text-white text-center py-1 text-sm font-bold flex items-center justify-center flex-shrink-0">
+        <ExclamationTriangleIcon className="w-4 h-4 mr-2" />
+        LIVE TRADING ACTIVE. REAL FUNDS ARE AT RISK.
     </div>
 );
 
@@ -1460,10 +1538,8 @@ const LiveTradingWarningModal: React.FC<{ onAccept: () => void; onCancel: () => 
 function AppContent() {
     const [view, setView] = useState('dashboard');
     const [positions, setPositions] = useState<Position[]>([]);
-    const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
-    const [isBotRunning, setIsBotRunning] = useState(false);
-    const [isDeployable, setIsDeployable] = useState(false);
-    const [realizedPnl, setRealizedPnl] = useState(124.50);
+    const [assets, setAssets] = useState<Asset[]>([]);
+    const [realizedPnl, setRealizedPnl] = useState(0);
     const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
     const [closedTrades, setClosedTrades] = useState<ClosedTrade[]>([]);
     const [submissions, setSubmissions] = useState<UserSubmission[]>([]);
@@ -1471,11 +1547,10 @@ function AppContent() {
     const [titleClickCount, setTitleClickCount] = useState(0);
     const titleClickTimer = useRef<number | null>(null);
     const [notifications, setNotifications] = useState<Notification[]>([]);
-    const { isConnected, setIsConnected, apiKey, apiSecret } = useAPI();
+    const { isConnected, setIsConnected, apiKey, apiSecret, environment } = useAPI();
     const [aiSuggestion, setAiSuggestion] = useState({ suggestion: '', isLoading: false, error: null as string | null });
     const [showLiveTradingWarning, setShowLiveTradingWarning] = useState(false);
-    const [pendingConnection, setPendingConnection] = useState<{ apiKey: string; apiSecret: string } | null>(null);
-
+    const [pendingConnection, setPendingConnection] = useState<{ apiKey: string; apiSecret: string, environment: 'testnet' | 'mainnet' } | null>(null);
 
     const getIconForType = (type: Notification['type']): React.ReactElement => {
         switch (type) {
@@ -1486,11 +1561,11 @@ function AppContent() {
         }
     };
 
-    const addNotification = (message: string, type: Notification['type'] = 'info') => {
+    const addNotification = useCallback((message: string, type: Notification['type'] = 'info') => {
         const id = Date.now();
         const icon = getIconForType(type);
         setNotifications(prev => [...prev, { id, message, type, icon }]);
-    };
+    }, []);
     
     const removeNotification = (id: number) => {
         setNotifications(prev => prev.filter(n => n.id !== id));
@@ -1499,52 +1574,59 @@ function AppContent() {
     const logActivity = (message: string, type: ActivityLogEntry['type']) => {
         setActivityLog(prev => [...prev, { timestamp: new Date().toISOString(), message, type }]);
     };
+    
+    const refreshAllData = useCallback(async () => {
+        if (!isConnected || !apiKey || !apiSecret) return;
+        try {
+            const [fetchedAssets, fetchedPositions] = await Promise.all([
+                verifyAndFetchBalances(apiKey, apiSecret, environment),
+                fetchPositions(apiKey, apiSecret, environment)
+            ]);
+            setAssets(fetchedAssets);
+            setPositions(fetchedPositions);
+        } catch (e: any) {
+            console.error("Failed to refresh data:", e.message);
+            addNotification(`Failed to refresh data: ${e.message}`, 'error');
+            if (e.message.includes('Invalid API')) {
+                setIsConnected(false);
+            }
+        }
+    }, [isConnected, apiKey, apiSecret, environment, addNotification, setIsConnected]);
 
-    // Effect to re-verify connection on app load
+
+    // Effect to re-verify connection on app load and periodically refresh data
     useEffect(() => {
         const validateAndFetchOnLoad = async () => {
-            // Only run if localStorage indicates a connection
             if (isConnected && apiKey && apiSecret) {
-                try {
-                    const fetchedAssets = await verifyAndFetchBalances(apiKey, apiSecret);
-                    setAssets(fetchedAssets);
-                    addNotification("Reconnected to live exchange.", 'info');
-                } catch (e: any) {
-                    console.error("Failed to reconnect with stored credentials:", e.message);
-                    // If keys are no longer valid, disconnect the session in context and revert data
-                    setIsConnected(false); 
-                    setAssets([]);
-                    addNotification("Failed to reconnect with stored API keys. Please verify.", 'error');
-                }
+                logActivity(`Attempting to reconnect to ${environment}...`, 'info');
+                await refreshAllData();
             }
         };
-
         validateAndFetchOnLoad();
-    }, []); // Empty dependency array ensures this runs only once on mount
-    
-    const handleDeployScript = (code: string) => {
-        setIsDeployable(true);
-        logActivity(`New strategy deployed. Bot is now ready.`, 'info');
-        addNotification("Strategy deployed! Bot is now ready to be activated.", 'success');
-    };
 
-    const handleToggleBot = () => {
-        setIsBotRunning(!isBotRunning);
-        logActivity(`AI Strategy ${!isBotRunning ? 'activated' : 'deactivated'}.`, 'info');
-    };
+        const intervalId = setInterval(() => {
+            if (isConnected) {
+                refreshAllData();
+            }
+        }, 15000); // Refresh every 15 seconds
+
+        return () => clearInterval(intervalId);
+    }, [isConnected, apiKey, apiSecret, environment, refreshAllData]);
     
-    const handleConnectAttempt = async (apiKey: string, apiSecret: string) => {
-        setPendingConnection({ apiKey, apiSecret });
+    const handleConnectAttempt = async (apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet') => {
+        setPendingConnection({ apiKey, apiSecret, environment });
         setShowLiveTradingWarning(true);
     };
 
     const handleConfirmLiveTrading = async () => {
         if (!pendingConnection) return;
         try {
-            const fetchedAssets = await verifyAndFetchBalances(pendingConnection.apiKey, pendingConnection.apiSecret);
+            const { apiKey, apiSecret, environment } = pendingConnection;
+            const fetchedAssets = await verifyAndFetchBalances(apiKey, apiSecret, environment);
             setAssets(fetchedAssets);
             setIsConnected(true);
-            addNotification("Successfully connected to live exchange!", 'success');
+            await refreshAllData();
+            addNotification(`Successfully connected to ${environment} environment!`, 'success');
         } catch(e: any) {
              throw e; // Re-throw to be caught in SettingsView
         } finally {
@@ -1559,10 +1641,9 @@ function AppContent() {
     };
     
     const handleDisconnect = () => {
-        setAssets([]); // Revert to an empty state on disconnect
+        setAssets([]);
         setPositions([]);
         setIsConnected(false);
-        clearSessionBalances();
     };
     
     const handleExecuteTrade = async (details: { asset: string; direction: 'LONG' | 'SHORT'; amountUSD: number; }) => {
@@ -1571,87 +1652,31 @@ function AppContent() {
             return;
         }
         try {
-            const newPositionData = await executeLiveTrade(details);
-            setPositions(prev => [...prev, newPositionData.position]);
-            setAssets(newPositionData.updatedAssets); // Update assets from the service response
-            logActivity(`Live trade executed: ${details.direction} ${newPositionData.position.size.toFixed(4)} ${details.asset}.`, 'trade');
+            logActivity(`Executing trade: ${details.direction} ${details.amountUSD} USD of ${details.asset}.`, 'trade');
+            await executeLiveTrade(details, apiKey, apiSecret, environment);
             addNotification(`Trade executed: ${details.direction} ${details.asset}`, 'success');
+            setTimeout(refreshAllData, 2000); // Refresh data after a short delay
         } catch (error: any) {
             logActivity(`Trade failed: ${error.message}`, 'loss');
             addNotification(`Trade failed: ${error.message}`, 'error');
+            throw error;
         }
     };
     
-    const handleClosePosition = async (positionId: string, source: 'Manual' | 'AI' = 'Manual') => {
+    const handleClosePosition = async (positionToClose: Position) => {
          if (!isConnected) {
             addNotification("Cannot close position. Not connected to exchange.", 'error');
             return;
         }
-        const posToClose = positions.find(p => p.id === positionId);
-        if (!posToClose) return;
-
         try {
-            const closeResult = await closeLivePosition(posToClose);
-            const { closedTrade, updatedAssets } = closeResult;
-            
-            setClosedTrades(prev => [...prev, closedTrade]);
-            setPositions(prev => prev.filter(p => p.id !== positionId));
-            setRealizedPnl(prev => prev + closedTrade.pnl);
-            setAssets(updatedAssets);
-
-            const logMessage = source === 'AI' 
-                ? `AI closed ${posToClose.asset} position. PnL: $${closedTrade.pnl.toFixed(2)}.`
-                : `Position closed for ${posToClose.asset}. PnL: $${closedTrade.pnl.toFixed(2)}.`;
-            
-            logActivity(logMessage, closedTrade.pnl >= 0 ? 'profit' : 'loss');
-            addNotification(`Closed ${posToClose.asset} position for $${closedTrade.pnl.toFixed(2)} PnL.`, 'info');
-
+            logActivity(`Closing ${positionToClose.direction} position for ${positionToClose.asset}.`, 'trade');
+            await closeLivePosition(positionToClose, apiKey, apiSecret, environment);
+            // PnL calculation now happens based on fetched data, not locally
+            addNotification(`Close order sent for ${positionToClose.asset}.`, 'info');
+            setTimeout(refreshAllData, 2000); // Refresh data after a short delay
         } catch (error: any) {
             logActivity(`Failed to close position: ${error.message}`, 'loss');
             addNotification(`Failed to close position: ${error.message}`, 'error');
-        }
-    };
-    
-    const handleWithdrawProfits = async () => {
-        if (isAdminVisible) {
-            if (realizedPnl <= 0) {
-                addNotification(`Admin Action: Segregated PnL of $${realizedPnl.toFixed(2)} has been reset.`, 'info');
-                logActivity('Admin reset segregated PnL to zero.', 'info');
-                setRealizedPnl(0);
-            } else {
-                if (!isConnected) {
-                    addNotification("Cannot withdraw. Please connect to the exchange first.", 'error');
-                    return;
-                }
-                
-                const amountToWithdraw = realizedPnl;
-                
-                try {
-                    addNotification(`Initiating transfer of $${amountToWithdraw.toFixed(2)}...`, 'info');
-                    
-                    // Call the API to perform the transfer, which updates the "backend" balance
-                    await transferFunds(amountToWithdraw, 'USDT');
-                    
-                    // Refetch the balances from the API to get the updated source of truth
-                    const updatedAssets = await verifyAndFetchBalances(apiKey, apiSecret);
-                    setAssets(updatedAssets);
-
-                    setRealizedPnl(0);
-
-                    logActivity(`Admin simulated API transfer of $${amountToWithdraw.toFixed(2)} to main account.`, 'profit');
-                    addNotification(`Successfully transferred $${amountToWithdraw.toFixed(2)} to your main exchange account.`, 'success');
-
-                } catch (error: any) {
-                    addNotification(`API Transfer Failed: ${error.message}`, 'error');
-                    logActivity('Failed to simulate API profit withdrawal.', 'loss');
-                }
-            }
-        } else {
-            if (realizedPnl > 0) {
-                addNotification(`$${realizedPnl.toFixed(2)} profits withdrawn to main capital.`, 'success');
-                logActivity('Profits withdrawn to main capital.', 'info');
-                setRealizedPnl(0);
-            }
         }
     };
     
@@ -1714,66 +1739,6 @@ function AppContent() {
             setTimeout(markSubmissionsAsRead, 500);
         }
     }, [view]);
-    
-    // AI Bot Trading Simulation Logic
-    useEffect(() => {
-        let botInterval: number | null = null;
-    
-        const simulateBotAction = () => {
-            if (!isConnected) return; // Don't trade if not connected
-
-            const shouldClose = Math.random() < 0.3 && positions.length > 0;
-            const maxPositions = 5; // As defined in settings view
-    
-            if (shouldClose) {
-                // Close a random existing position
-                const posToClose = positions[Math.floor(Math.random() * positions.length)];
-                handleClosePosition(posToClose.id, 'AI');
-            } else if (positions.length < maxPositions) {
-                // Open a new position
-                const markets = Object.keys(MOCK_TRADE_VIEW_DATA).filter(m => m !== 'NGN/USD');
-                const asset = markets[Math.floor(Math.random() * markets.length)];
-                const direction = Math.random() < 0.5 ? 'LONG' : 'SHORT';
-                const amountUSD = Math.floor(Math.random() * (500 - 50 + 1)) + 50; // Random amount: $50-$500
-                
-                handleExecuteTrade({ asset, direction, amountUSD });
-            }
-        };
-    
-        if (isBotRunning) {
-            logActivity('AI Bot is scanning for opportunities...', 'info');
-            botInterval = window.setInterval(simulateBotAction, 7000); // Act every 7 seconds
-        }
-    
-        return () => {
-            if (botInterval) {
-                clearInterval(botInterval);
-            }
-        };
-    }, [isBotRunning, isConnected, positions]);
-
-     // Real-time PnL Update Simulation
-    useEffect(() => {
-        const pnlInterval = setInterval(() => {
-            if (positions.length === 0) return;
-
-            setPositions(prevPositions =>
-                prevPositions.map(pos => {
-                    // Simulate a small price fluctuation
-                    const priceFluctuation = (Math.random() - 0.5) * 0.001; // +/- 0.05%
-                    const currentPrice = MOCK_TRADE_VIEW_DATA[pos.asset]['15m'].prices[0] * (1 + priceFluctuation);
-
-                    const newPnl = (currentPrice - pos.entryPrice) * pos.size * (pos.direction === 'LONG' ? 1 : -1);
-                    const costBasis = pos.entryPrice * pos.size;
-                    const newPnlPercent = costBasis !== 0 ? (newPnl / costBasis) * 100 : 0;
-                    
-                    return { ...pos, pnl: newPnl, pnlPercent: newPnlPercent };
-                })
-            );
-        }, 3000); // Update every 3 seconds
-
-        return () => clearInterval(pnlInterval);
-    }, [positions]);
 
     // Admin View Security
     if (view === 'admin' && !isAdminVisible) {
@@ -1784,7 +1749,7 @@ function AppContent() {
      const getTradingSuggestionHandler = async () => {
         setAiSuggestion({ suggestion: '', isLoading: true, error: null });
         try {
-            const context = `Current PnL: $${realizedPnl.toFixed(2)}. Open Positions: ${positions.length}. Bot Status: ${isBotRunning ? 'Active' : 'Idle'}`;
+            const context = `Current PnL: $${realizedPnl.toFixed(2)}. Open Positions: ${positions.length}.`;
             const suggestion = await getTradingSuggestion(context);
             setAiSuggestion({ suggestion, isLoading: false, error: null });
         } catch (e: any) {
@@ -1805,20 +1770,14 @@ function AppContent() {
                             realizedPnl={realizedPnl} 
                             assets={assets} 
                             onManualClosePosition={handleClosePosition}
-                            isBotRunning={isBotRunning}
-                            onToggleBot={handleToggleBot}
-                            isDeployable={isDeployable}
                             activityLog={activityLog}
-                            onWithdrawProfits={handleWithdrawProfits}
                             onGetSuggestion={getTradingSuggestionHandler}
                             aiSuggestion={aiSuggestion}
-                            isAdminVisible={isAdminVisible}
                         />;
             case 'trade':
                 return <TradeView 
                             data={MOCK_TRADE_VIEW_DATA} 
                             onExecuteTrade={handleExecuteTrade} 
-                            isBotRunning={isBotRunning} 
                             isConnected={isConnected} 
                         />;
             case 'wallet':
@@ -1826,7 +1785,7 @@ function AppContent() {
             case 'settings':
                 return <SettingsView onConnectAttempt={handleConnectAttempt} onDisconnect={handleDisconnect} addNotification={addNotification} />;
             case 'strategy':
-                return <StrategyView onDeployScript={handleDeployScript} />;
+                return <StrategyView addNotification={addNotification} />;
             case 'history':
                 return <HistoryView trades={closedTrades} positions={positions} />;
             case 'about':
@@ -1842,10 +1801,11 @@ function AppContent() {
 
     return (
         <div className="flex h-screen bg-gray-900 text-gray-100">
-            {showLiveTradingWarning && (
+            {showLiveTradingWarning && pendingConnection && (
                 <LiveTradingWarningModal
                     onAccept={handleConfirmLiveTrading}
                     onCancel={handleCancelLiveTrading}
+                    environment={pendingConnection.environment}
                 />
             )}
             <NotificationContainer notifications={notifications} onDismiss={removeNotification} />
@@ -1858,10 +1818,9 @@ function AppContent() {
                 unreadSubmissionsCount={unreadSubmissionsCount}
             />
             <main className="flex-1 flex flex-col overflow-hidden">
+                {isConnected && environment === 'mainnet' && <LiveBanner />}
                 <DashboardHeader
                     currentView={view}
-                    isBotRunning={isBotRunning}
-                    isDeployable={isDeployable}
                     isConnected={isConnected}
                 />
                 <div className="flex-1 overflow-y-auto bg-black/20">

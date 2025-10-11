@@ -1,173 +1,164 @@
 import type { Asset, Position, ClosedTrade } from '../types';
-import { MOCK_TRADE_VIEW_DATA } from '../constants';
 
+// This service provides a live connection to the Bybit v5 API.
+// It handles API request signing and translates API responses into the application's data types.
 
-// This service simulates a live connection to the Bybit API.
-// It maintains a session-specific state for balances and processes trade executions.
-// For a successful connection, use the following dummy credentials:
-// API Key: test_api_key_123
-// API Secret: test_api_secret_456
+const URL_MAINNET = 'https://api.bybit.com';
+const URL_TESTNET = 'https://api-testnet.bybit.com';
 
-let sessionBalances: Asset[] | null = null;
-const VALID_API_KEY = 'test_api_key_123';
-const VALID_API_SECRET = 'test_api_secret_456';
+// --- API Request Signing & Handling ---
 
-const generateRandomBalances = (): Asset[] => {
-    const randomFloat = (min: number, max: number, decimals: number) => {
-        const str = (Math.random() * (max - min) + min).toFixed(decimals);
-        return parseFloat(str);
+async function signRequest(timestamp: string, apiKey: string, apiSecret: string, recvWindow: string, params: string): Promise<string> {
+    const message = timestamp + apiKey + recvWindow + params;
+    const encoder = new TextEncoder();
+    const key = await window.crypto.subtle.importKey(
+        'raw',
+        encoder.encode(apiSecret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+    );
+    const signature = await window.crypto.subtle.sign('HMAC', key, encoder.encode(message));
+    return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function makeRequest(
+    method: 'GET' | 'POST',
+    path: string,
+    params: any,
+    apiKey: string,
+    apiSecret: string,
+    environment: 'testnet' | 'mainnet'
+) {
+    const baseUrl = environment === 'mainnet' ? URL_MAINNET : URL_TESTNET;
+    const timestamp = Date.now().toString();
+    const recvWindow = '10000'; // Increased receive window for network variability
+
+    let signaturePayload = '';
+    let requestBody: string | undefined = undefined;
+    let fullUrl = baseUrl + path;
+
+    if (method === 'GET') {
+        const queryString = new URLSearchParams(params).toString();
+        if (queryString) {
+            fullUrl += '?' + queryString;
+            signaturePayload = queryString;
+        }
+    } else { // POST
+        requestBody = JSON.stringify(params);
+        signaturePayload = requestBody;
+    }
+
+    const signature = await signRequest(timestamp, apiKey, apiSecret, recvWindow, signaturePayload);
+
+    const headers = {
+        'X-BAPI-API-KEY': apiKey,
+        'X-BAPI-TIMESTAMP': timestamp,
+        'X-BAPI-SIGN': signature,
+        'X-BAPI-RECV-WINDOW': recvWindow,
+        'Content-Type': 'application/json; charset=utf-8'
     };
 
-    const usdtAmount = randomFloat(10000, 100000, 2);
-    const btcAmount = randomFloat(0.1, 5, 6);
-    const ethAmount = randomFloat(1, 50, 4);
+    const response = await fetch(fullUrl, {
+        method,
+        headers,
+        body: requestBody,
+    });
+
+    const data = await response.json();
+
+    if (data.retCode !== 0) {
+        throw new Error(`Bybit API Error: ${data.retMsg} (Code: ${data.retCode})`);
+    }
+
+    return data.result;
+}
+
+// --- Service Functions ---
+
+export const verifyAndFetchBalances = async (apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet'): Promise<Asset[]> => {
+    const result = await makeRequest('GET', '/v5/account/wallet-balance', { accountType: 'UNIFIED' }, apiKey, apiSecret, environment);
     
-    const btcPrice = 69000;
-    const ethPrice = 3700;
+    if (!result.list || result.list.length === 0) {
+        throw new Error("Could not find Unified Trading Account balance.");
+    }
 
-    return [
-        { name: 'USDT', total: usdtAmount, available: usdtAmount, inOrders: 0, usdValue: usdtAmount },
-        { name: 'Bitcoin (BTC)', total: btcAmount, available: btcAmount, inOrders: 0, usdValue: btcAmount * btcPrice },
-        { name: 'Ethereum (ETH)', total: ethAmount, available: ethAmount, inOrders: 0, usdValue: ethAmount * ethPrice },
-    ];
+    const account = result.list[0];
+    return account.coin.map((coin: any): Asset => ({
+        name: coin.coin,
+        total: parseFloat(coin.walletBalance),
+        available: parseFloat(coin.availableToWithdraw), // A more accurate representation of available capital
+        inOrders: parseFloat(coin.walletBalance) - parseFloat(coin.availableToWithdraw),
+        usdValue: parseFloat(coin.usdValue),
+    })).sort((a: Asset, b: Asset) => b.usdValue - a.usdValue);
 };
 
-export const verifyAndFetchBalances = (apiKey: string, apiSecret: string): Promise<Asset[]> => {
-  return new Promise((resolve, reject) => {
-    setTimeout(() => {
-      if (apiKey === VALID_API_KEY && apiSecret === VALID_API_SECRET) {
-        if (!sessionBalances) {
-            sessionBalances = generateRandomBalances();
-        }
-        resolve(JSON.parse(JSON.stringify(sessionBalances)));
-      } else {
-        reject(new Error("Invalid API credentials. Please check and try again."));
-      }
-    }, 1500);
-  });
+// This function fetches live positions and maps them to the app's Position type.
+export const fetchPositions = async (apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet'): Promise<Position[]> => {
+    const result = await makeRequest('GET', '/v5/position/list', { category: 'linear', settleCoin: 'USDT' }, apiKey, apiSecret, environment);
+    
+    return result.list.map((pos: any): Position => ({
+        id: `${pos.symbol}-${pos.side}`,
+        asset: pos.symbol.replace('USDT', '/USD'),
+        direction: pos.side === 'Buy' ? 'LONG' : 'SHORT',
+        entryPrice: parseFloat(pos.avgPrice),
+        size: parseFloat(pos.size),
+        pnl: parseFloat(pos.unrealisedPnl),
+        pnlPercent: parseFloat(pos.unrealisedPnl) / (parseFloat(pos.avgPrice) * parseFloat(pos.size) / pos.leverage) * 100, // Approximate PnL %
+        openTimestamp: new Date(parseInt(pos.createdTime)).toISOString(),
+        seen: false, // Default for new positions
+    }));
 };
 
-export const transferFunds = (amount: number, currency: string): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    setTimeout(() => {
-      if (amount <= 0) return reject(new Error("Transfer amount must be positive."));
-      if (!sessionBalances) return reject(new Error("Cannot transfer funds, no active connection session."));
-
-      const assetToUpdate = sessionBalances.find(a => a.name === currency);
-      if (assetToUpdate) {
-        assetToUpdate.total += amount;
-        assetToUpdate.available += amount;
-        assetToUpdate.usdValue += amount;
-      } else {
-        sessionBalances.push({ name: currency, total: amount, available: amount, inOrders: 0, usdValue: amount });
-      }
-      resolve();
-    }, 1000);
-  });
+const convertSymbolToBybit = (appSymbol: string): string => {
+    return appSymbol.replace('/USD', 'USDT');
 };
-
-export const clearSessionBalances = (): void => {
-    sessionBalances = null;
-};
-
-// --- Live Trading Functions ---
 
 interface ExecuteTradeDetails {
-    asset: string;
+    asset: string; // e.g., 'BTC/USD'
     direction: 'LONG' | 'SHORT';
     amountUSD: number;
 }
 
-interface ExecuteTradeResult {
-    position: Position;
-    updatedAssets: Asset[];
-}
+export const executeLiveTrade = async (details: ExecuteTradeDetails, apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet'): Promise<void> => {
+    const symbol = convertSymbolToBybit(details.asset);
+    
+    // Fetch latest price to calculate quantity
+    const tickerResult = await makeRequest('GET', '/v5/market/tickers', { category: 'linear', symbol }, apiKey, apiSecret, environment);
+    const markPrice = parseFloat(tickerResult.list[0].markPrice);
+    if (!markPrice) throw new Error(`Could not fetch market price for ${symbol}`);
 
-export const executeLiveTrade = (details: ExecuteTradeDetails): Promise<ExecuteTradeResult> => {
-    return new Promise((resolve, reject) => {
-        setTimeout(() => {
-            if (!sessionBalances) {
-                return reject(new Error("No active exchange session."));
-            }
-            
-            const collateralAsset = sessionBalances.find(a => a.name === 'USDT');
-            if (!collateralAsset || collateralAsset.available < details.amountUSD) {
-                return reject(new Error("Insufficient USDT balance to open position."));
-            }
+    const quantity = (details.amountUSD / markPrice).toFixed(3); // Adjust precision as needed for different assets
 
-            // Simulate market execution
-            const entryPrice = MOCK_TRADE_VIEW_DATA[details.asset]['15m'].prices[0] * (1 + (Math.random() - 0.5) * 0.0005);
-            const size = details.amountUSD / entryPrice;
+    const order = {
+        category: 'linear',
+        symbol: symbol,
+        side: details.direction === 'LONG' ? 'Buy' : 'Sell',
+        orderType: 'Market',
+        qty: quantity,
+    };
 
-            // Update balances
-            collateralAsset.available -= details.amountUSD;
-            collateralAsset.inOrders += details.amountUSD;
-
-            const newPosition: Position = {
-                id: `pos-${Date.now()}`,
-                asset: details.asset,
-                direction: details.direction,
-                entryPrice: entryPrice,
-                size: size,
-                pnl: 0,
-                pnlPercent: 0,
-                openTimestamp: new Date().toISOString(),
-                seen: false,
-            };
-            
-            resolve({
-                position: newPosition,
-                updatedAssets: JSON.parse(JSON.stringify(sessionBalances)),
-            });
-
-        }, 1000); // Simulate network latency
-    });
+    await makeRequest('POST', '/v5/order/create', order, apiKey, apiSecret, environment);
 };
 
+export const closeLivePosition = async (position: Position, apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet'): Promise<void> => {
+    const symbol = convertSymbolToBybit(position.asset);
+    const order = {
+        category: 'linear',
+        symbol: symbol,
+        side: position.direction === 'LONG' ? 'Sell' : 'Buy',
+        orderType: 'Market',
+        qty: String(position.size),
+        reduceOnly: true, // This flag ensures the order only closes an existing position
+    };
+    await makeRequest('POST', '/v5/order/create', order, apiKey, apiSecret, environment);
+};
 
-interface ClosePositionResult {
-    closedTrade: ClosedTrade;
-    updatedAssets: Asset[];
-}
+// Dummy functions to satisfy legacy calls. Real transfers are complex and out of scope.
+export const transferFunds = (amount: number, currency: string): Promise<void> => {
+  return Promise.reject(new Error("Fund transfers must be managed directly on the Bybit exchange."));
+};
 
-export const closeLivePosition = (position: Position): Promise<ClosePositionResult> => {
-    return new Promise((resolve, reject) => {
-        setTimeout(() => {
-            if (!sessionBalances) {
-                return reject(new Error("No active exchange session."));
-            }
-            const collateralAsset = sessionBalances.find(a => a.name === 'USDT');
-            if (!collateralAsset) {
-                 return reject(new Error("Critical error: USDT collateral not found."));
-            }
-
-            // Simulate market close
-            const exitPrice = MOCK_TRADE_VIEW_DATA[position.asset]['15m'].prices[0] * (1 + (Math.random() - 0.5) * 0.001);
-            const pnl = (exitPrice - position.entryPrice) * position.size * (position.direction === 'LONG' ? 1 : -1);
-            const initialCapital = position.entryPrice * position.size;
-
-            // Update balances
-            collateralAsset.inOrders -= initialCapital;
-            if (collateralAsset.inOrders < 0) collateralAsset.inOrders = 0; // Prevent negative inOrders
-            collateralAsset.available += (initialCapital + pnl);
-
-            const closedTrade: ClosedTrade = {
-                id: `trade-${Date.now()}`,
-                asset: position.asset,
-                direction: position.direction,
-                entryPrice: position.entryPrice,
-                exitPrice: exitPrice,
-                size: position.size,
-                pnl: pnl,
-                openTimestamp: position.openTimestamp,
-                closeTimestamp: new Date().toISOString(),
-            };
-
-            resolve({
-                closedTrade,
-                updatedAssets: JSON.parse(JSON.stringify(sessionBalances)),
-            });
-
-        }, 1000);
-    });
+export const clearSessionBalances = (): void => {
+    // This is a legacy function from the simulation; it has no effect in the live version.
 };

@@ -7,11 +7,11 @@ interface CodeViewerProps {
   isLoading?: boolean;
   isBacktestRunning?: boolean;
   onRunBacktest?: () => void;
-  onDeployScript?: () => void;
-  isDeployed?: boolean;
+  onExportScript?: () => void;
+  isExporting?: boolean;
 }
 
-export default function CodeViewer({ title, code, isLoading = false, isBacktestRunning = false, onRunBacktest, onDeployScript, isDeployed = false }: CodeViewerProps): React.ReactElement {
+export default function CodeViewer({ title, code, isLoading = false, isBacktestRunning = false, onRunBacktest, onExportScript, isExporting = false }: CodeViewerProps): React.ReactElement {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -27,23 +27,19 @@ export default function CodeViewer({ title, code, isLoading = false, isBacktestR
       <div className="flex justify-between items-center p-4 border-b border-gray-700 flex-shrink-0">
         <h2 className="text-lg font-semibold text-white">{title}</h2>
         <div className="flex items-center space-x-2">
-           {onDeployScript && (
+           {onExportScript && (
              <div className="relative group">
                 <button
-                  onClick={onDeployScript}
-                  disabled={isDeployed || !code}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center transition-colors ${
-                    isDeployed 
-                    ? 'bg-green-500/20 text-green-400 cursor-default' 
-                    : 'bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600/50 disabled:text-gray-400 disabled:cursor-not-allowed text-white'
-                  }`}
+                  onClick={onExportScript}
+                  disabled={isExporting || !code}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center transition-colors bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600/50 disabled:text-gray-400 disabled:cursor-not-allowed text-white`}
                 >
-                    <RocketIcon />
-                    <span className="ml-2">{isDeployed ? 'Deployed' : 'Deploy to Live Trading'}</span>
+                    {isExporting ? <LoadingIcon /> : <RocketIcon />}
+                    <span className="ml-2">{isExporting ? 'Exporting...' : 'Export Live Bot Script'}</span>
                 </button>
-                {!isDeployed && !code && (
+                {!code && (
                     <div className="absolute bottom-full mb-2 w-max bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                        Generate the enhanced script to enable deployment.
+                        Generate the enhanced script to enable export.
                     </div>
                 )}
              </div>
@@ -84,7 +80,7 @@ export default function CodeViewer({ title, code, isLoading = false, isBacktestR
           </pre>
         ) : (
           <div className="flex items-center justify-center h-full">
-            <p className="text-gray-500">Generate script to enable deployment.</p>
+            <p className="text-gray-500">Generate script to view and export.</p>
           </div>
         )}
       </div>
