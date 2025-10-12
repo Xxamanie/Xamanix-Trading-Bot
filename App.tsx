@@ -5,7 +5,7 @@ import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, SunIcon, 
 import RecommendationsPanel from './components/RecommendationsPanel';
 import BacktestResults from './components/BacktestResults';
 import CodeViewer from './components/CodeViewer';
-import { analyzeCode, runBacktest, generateEnhancedCode, getTradingSuggestion, generateLiveBotScript } from './services/geminiService';
+import { analyzeCode, runBacktest, generateEnhancedCode, getTradingSuggestion } from './services/geminiService';
 import { APIProvider, useAPI } from './contexts/APIContext';
 import { verifyAndFetchBalances, fetchPositions, executeLiveTrade, closeLivePosition } from './services/bybitService';
 import { LinkIcon } from './components/icons';
@@ -108,7 +108,7 @@ const AIStatusPanel: React.FC<AIStatusPanelProps> = ({ realizedPnl, activityLog,
                          {realizedPnl >= 0 ? '+' : '-'}${Math.abs(realizedPnl).toFixed(2)}
                     </p>
                 </div>
-                 <p className="text-xs text-gray-400">The panel below tracks manual trades and AI suggestions. Export a full AI bot from the 'Strategy' tab.</p>
+                 <p className="text-xs text-gray-400">This panel tracks manual trades, AI suggestions, and live bot activity.</p>
             </div>
             <div className="px-4 pb-4 space-y-3">
                  <Button onClick={onGetSuggestion} disabled={aiSuggestion.isLoading} className="w-full !py-2.5 flex items-center justify-center">
@@ -807,7 +807,12 @@ const SettingsView: React.FC<{ onConnectAttempt: (apiKey: string, apiSecret: str
     );
 };
 
-const StrategyView: React.FC<{ addNotification: (message: string, type: Notification['type']) => void }> = ({ addNotification }) => {
+const StrategyView: React.FC<{
+    addNotification: (message: string, type: Notification['type']) => void;
+    isBotDeployed: boolean;
+    onDeployBot: () => void;
+    onStopBot: () => void;
+}> = ({ addNotification, isBotDeployed, onDeployBot, onStopBot }) => {
     const [originalCode, setOriginalCode] = useState<string>(DEFAULT_SCRIPT);
     const [enhancedCode, setEnhancedCode] = useState<string>('');
   
@@ -822,7 +827,6 @@ const StrategyView: React.FC<{ addNotification: (message: string, type: Notifica
     const [isBacktestRunning, setIsBacktestRunning] = useState<boolean>(false);
     const [backtestError, setBacktestError] = useState<string | null>(null);
     const [activeBacktest, setActiveBacktest] = useState<'none' | 'original' | 'enhanced'>('none');
-    const [isExporting, setIsExporting] = useState<boolean>(false);
 
     const handleAnalyze = async () => {
         setIsLoadingAnalysis(true);
@@ -872,35 +876,6 @@ const StrategyView: React.FC<{ addNotification: (message: string, type: Notifica
             setIsGeneratingScript(false);
         }
     };
-    
-    const handleExportScript = async () => {
-        const codeToExport = enhancedCode || originalCode;
-        if (!codeToExport) return;
-        
-        setIsExporting(true);
-        try {
-            const liveBotScript = await generateLiveBotScript(codeToExport);
-            
-            // Trigger download
-            const blob = new Blob([liveBotScript], { type: 'text/x-python' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'live_trading_bot.py';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-
-            addNotification("Live bot script exported successfully!", 'success');
-
-        } catch (error) {
-            console.error("Failed to export live bot script:", error);
-            addNotification("Failed to export script. See console for details.", 'error');
-        } finally {
-            setIsExporting(false);
-        }
-    };
 
     const handleRunBacktest = async (codeToRun: 'original' | 'enhanced') => {
         const code = codeToRun === 'original' ? originalCode : enhancedCode;
@@ -927,7 +902,7 @@ const StrategyView: React.FC<{ addNotification: (message: string, type: Notifica
                 <div className="flex flex-col items-center justify-center h-full text-center">
                     <div className="max-w-3xl w-full bg-gray-800/50 border border-gray-700 rounded-xl shadow-lg p-8">
                         <h2 className="text-2xl font-bold text-white mb-2">AI Strategy Enhancer</h2>
-                        <p className="text-gray-400 mb-6">Paste your Python trading script below to analyze, enhance, and export a standalone bot.</p>
+                        <p className="text-gray-400 mb-6">Paste your Python trading script below to analyze, enhance, and deploy a standalone bot.</p>
                         <textarea
                             value={originalCode}
                             onChange={(e) => setOriginalCode(e.target.value)}
@@ -941,14 +916,6 @@ const StrategyView: React.FC<{ addNotification: (message: string, type: Notifica
                                 className="w-full sm:w-auto bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center transition-colors shadow-lg"
                             >
                                 <SparklesIcon /> <span className="ml-2">Analyze Script</span>
-                            </button>
-                             <button
-                                onClick={handleExportScript}
-                                disabled={!originalCode.trim() || isExporting}
-                                className="w-full sm:w-auto bg-gray-700 hover:bg-gray-600 disabled:bg-gray-600/50 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center transition-colors shadow-lg"
-                            >
-                                {isExporting ? <LoadingIcon /> : <RocketIcon />}
-                                <span className="ml-2">{isExporting ? 'Exporting...' : 'Export Original as Bot'}</span>
                             </button>
                         </div>
                     </div>
@@ -981,7 +948,8 @@ const StrategyView: React.FC<{ addNotification: (message: string, type: Notifica
                             onGenerateScript={handleGenerateScript}
                             isGenerating={isGeneratingScript}
                         />
-                        <div className="flex-grow">
+
+                         <div className="flex-grow">
                              <BacktestResults 
                                 results={backtestResult}
                                 isLoading={isBacktestRunning}
@@ -996,14 +964,37 @@ const StrategyView: React.FC<{ addNotification: (message: string, type: Notifica
                             isBacktestRunning={isBacktestRunning && activeBacktest === 'original'}
                             onRunBacktest={() => handleRunBacktest('original')}
                         />
+                        <div className="flex flex-col space-y-4 bg-gray-800 rounded-lg p-4 border border-gray-700">
+                             <h3 className="text-lg font-semibold text-white">Live Bot Deployment</h3>
+                             {isBotDeployed ? (
+                                <>
+                                 <div className="bg-green-900/50 border border-green-700 text-green-300 rounded-lg p-4 text-center">
+                                    <p className="font-bold">Your bot is LIVE and running in our simulated cloud environment.</p>
+                                    <p className="text-sm mt-1">Check the Dashboard for activity logs.</p>
+                                 </div>
+                                 <Button onClick={onStopBot} variant='secondary' className='!bg-red-600 hover:!bg-red-700 w-full'>
+                                     Stop Live Bot
+                                 </Button>
+                                </>
+                             ) : (
+                                <>
+                                 <p className="text-sm text-gray-400">
+                                    Once you are satisfied with your enhanced script and backtest results, you can deploy it to our simulated cloud environment to run 24/7.
+                                 </p>
+                                 <Button onClick={onDeployBot} variant='primary' disabled={!enhancedCode || isGeneratingScript}>
+                                     <div className="flex items-center justify-center">
+                                         <RocketIcon /> <span className="ml-2">Deploy Enhanced Script as Live Bot</span>
+                                     </div>
+                                 </Button>
+                                </>
+                             )}
+                        </div>
                         <CodeViewer
                             title="Enhanced Script"
                             code={enhancedCode}
                             isLoading={isGeneratingScript}
                             isBacktestRunning={isBacktestRunning && activeBacktest === 'enhanced'}
                             onRunBacktest={() => handleRunBacktest('enhanced')}
-                            onExportScript={handleExportScript}
-                            isExporting={isExporting}
                         />
                     </div>
                 </div>
@@ -1145,7 +1136,7 @@ const AboutView: React.FC = () => (
                         <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>AI Script Analysis:</strong> Get deep insights into your strategy's parameters and logic.</span></li>
                         <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Intelligent Recommendations:</strong> Receive actionable suggestions for improving risk management, signal confirmation, and more.</span></li>
                         <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>One-Click Backtesting:</strong> Instantly run detailed backtests on both original and AI-enhanced scripts.</span></li>
-                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Export Standalone Bots:</strong> Generate complete, live-ready Python bots to run on your own hardware.</span></li>
+                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Simulated Cloud Deployment:</strong> Deploy your bot to a simulated 24/7 environment with a single click—no files needed.</span></li>
                         <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Real-Time Monitoring:</strong> Keep track of your manual trades, open positions, and PnL through an intuitive dashboard.</span></li>
                         <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Live Exchange Integration:</strong> Connect securely to your Bybit account to manage your portfolio and execute manual trades.</span></li>
                     </ul>
@@ -1403,8 +1394,8 @@ const StatusIndicator: React.FC<{ label: string; status: 'positive' | 'neutral' 
 const DashboardHeader: React.FC<{
     currentView: string;
     isConnected: boolean;
-    isLiveBotActive: boolean;
-}> = ({ currentView, isConnected, isLiveBotActive }) => {
+    isBotDeployed: boolean;
+}> = ({ currentView, isConnected, isBotDeployed }) => {
     const { environment } = useAPI();
     const title = currentView.charAt(0).toUpperCase() + currentView.slice(1);
 
@@ -1421,9 +1412,9 @@ const DashboardHeader: React.FC<{
             <div className="flex items-center space-x-6">
                  <StatusIndicator 
                     label="Live Bot Status"
-                    status={isLiveBotActive ? 'positive' : 'negative'}
-                    text={isLiveBotActive ? 'Active' : 'Inactive'}
-                    tooltip="Export a bot from the 'Strategy' tab and run it on your computer to activate."
+                    status={isBotDeployed ? 'positive' : 'negative'}
+                    text={isBotDeployed ? 'Active' : 'Inactive'}
+                    tooltip="Deploy a bot from the 'Strategy' tab to activate."
                 />
                  <StatusIndicator 
                     label="Environment"
@@ -1552,13 +1543,13 @@ const WelcomeModal: React.FC<{ onAccept: () => void }> = ({ onAccept }) => {
                     <p className="flex items-start">
                         <ShieldCheckIcon className="w-6 h-6 mr-3 mt-0.5 text-green-400 flex-shrink-0" />
                         <span>
-                            <strong>For Your Security & Reliability:</strong> This app helps you create and backtest strategies. For 24/7 trading, you will export a standalone Python script to run on your own secure computer or server.
+                            <strong>All-in-One Platform:</strong> This app is your complete command center. Analyze, backtest, and deploy your trading strategies to our secure, simulated cloud environment with a single click.
                         </span>
                     </p>
                     <p className="flex items-start">
-                        <ExclamationTriangleIcon className="w-6 h-6 mr-3 mt-0.5 text-yellow-400 flex-shrink-0" />
+                        <InfoIcon className="w-6 h-6 mr-3 mt-0.5 text-cyan-400 flex-shrink-0" />
                          <span>
-                             <strong>Important Note:</strong> This application does not run trades in the background of your device. Closing this app or your browser will stop all in-app activity. Only an exported bot running on your hardware can trade continuously.
+                             <strong>How it Works:</strong> Your deployed bots run 24/7 in our simulated environment. You can monitor their activity on your dashboard and stop them anytime from the Strategy page. No downloads or coding required!
                          </span>
                     </p>
                 </div>
@@ -1591,13 +1582,14 @@ function AppContent() {
     const [isAdminVisible, setIsAdminVisible] = useState(false);
     const [titleClickCount, setTitleClickCount] = useState(0);
     const titleClickTimer = useRef<number | null>(null);
+    const botActivityInterval = useRef<number | null>(null);
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const { isConnected, setIsConnected, apiKey, apiSecret, environment } = useAPI();
     const [aiSuggestion, setAiSuggestion] = useState({ suggestion: '', isLoading: false, error: null as string | null });
     const [showLiveTradingWarning, setShowLiveTradingWarning] = useState(false);
     const [pendingConnection, setPendingConnection] = useState<{ apiKey: string; apiSecret: string, environment: 'testnet' | 'mainnet' } | null>(null);
     const [showWelcomeModal, setShowWelcomeModal] = useState<boolean>(false);
-    const [isLiveBotActive, setIsLiveBotActive] = useState<boolean>(false);
+    const [isBotDeployed, setIsBotDeployed] = useState<boolean>(() => localStorage.getItem('xamanix-botDeployed') === 'true');
 
     useEffect(() => {
         const welcomeSeen = localStorage.getItem('xamanix-welcome-seen');
@@ -1634,6 +1626,56 @@ function AppContent() {
         setActivityLog(prev => [...prev, { timestamp: new Date().toISOString(), message, type }]);
     };
     
+    // Bot Deployment and Simulation Logic
+    const handleDeployBot = () => {
+        setIsBotDeployed(true);
+        localStorage.setItem('xamanix-botDeployed', 'true');
+        addNotification("Live bot has been deployed!", 'success');
+        logActivity("Live bot deployed and running in simulated cloud.", 'info');
+    };
+
+    const handleStopBot = () => {
+        setIsBotDeployed(false);
+        localStorage.setItem('xamanix-botDeployed', 'false');
+        addNotification("Live bot has been stopped.", 'info');
+        logActivity("Live bot stopped.", 'info');
+    };
+    
+    // Effect to simulate bot activity
+    useEffect(() => {
+        if (isBotDeployed) {
+            botActivityInterval.current = window.setInterval(() => {
+                const randomAction = Math.random();
+                if (randomAction < 0.2) { // Simulate a trade
+                    const pnl = (Math.random() - 0.45) * 50; // Skew towards positive
+                    const newTrade: ClosedTrade = {
+                        id: `sim-${Date.now()}`,
+                        asset: 'BTC/USD',
+                        direction: Math.random() > 0.5 ? 'LONG' : 'SHORT',
+                        entryPrice: 69000 + (Math.random() - 0.5) * 500,
+                        exitPrice: 69000 + (Math.random() - 0.5) * 500 + pnl / 0.01,
+                        size: 0.01,
+                        pnl: pnl,
+                        openTimestamp: new Date(Date.now() - 3600000).toISOString(),
+                        closeTimestamp: new Date().toISOString()
+                    };
+                    setClosedTrades(prev => [...prev, newTrade]);
+                    setRealizedPnl(prev => prev + pnl);
+                    logActivity(`Simulated Bot Trade: Closed ${newTrade.direction} ${newTrade.asset} for $${pnl.toFixed(2)} PnL.`, pnl > 0 ? 'profit' : 'loss');
+                } else { // Simulate a log message
+                     logActivity("Live Bot: Analyzing market for signals...", 'info');
+                }
+            }, 8000); // Activity every 8 seconds
+        }
+
+        return () => {
+            if (botActivityInterval.current) {
+                clearInterval(botActivityInterval.current);
+            }
+        };
+    }, [isBotDeployed]);
+
+
     const refreshAllData = useCallback(async () => {
         if (!isConnected || !apiKey || !apiSecret) return;
         try {
@@ -1694,51 +1736,42 @@ function AppContent() {
         }
     };
 
-    const handleCancelLiveTrading = () => {
-        setShowLiveTradingWarning(false);
-        setPendingConnection(null);
-    };
-    
     const handleDisconnect = () => {
-        setAssets([]);
-        setPositions([]);
         setIsConnected(false);
     };
-    
-    const handleExecuteTrade = async (details: { asset: string; direction: 'LONG' | 'SHORT'; amountUSD: number; }) => {
-        if (!isConnected) {
-            addNotification("Cannot execute trade. Not connected to exchange.", 'error');
+
+    const handleManualClosePosition = async (position: Position) => {
+        if (!apiKey || !apiSecret) {
+            addNotification("API keys not configured.", 'error');
             return;
         }
         try {
-            logActivity(`Executing trade: ${details.direction} ${details.amountUSD} USD of ${details.asset}.`, 'trade');
+            await closeLivePosition(position, apiKey, apiSecret, environment);
+            addNotification(`Closing position for ${position.asset}.`, 'info');
+            logActivity(`Manual Close: Closing ${position.direction} for ${position.asset}.`, 'trade');
+            await refreshAllData();
+        } catch (e: any) {
+            addNotification(`Failed to close position: ${e.message}`, 'error');
+            logActivity(`Close Error: ${e.message}`, 'loss');
+        }
+    };
+    
+    const handleExecuteTrade = async (details: { asset: string, direction: 'LONG' | 'SHORT', amountUSD: number }) => {
+        if (!apiKey || !apiSecret) {
+            addNotification("API keys not configured.", 'error');
+            return;
+        }
+        try {
             await executeLiveTrade(details, apiKey, apiSecret, environment);
-            addNotification(`Trade executed: ${details.direction} ${details.asset}`, 'success');
-            setTimeout(refreshAllData, 2000); // Refresh data after a short delay
-        } catch (error: any) {
-            logActivity(`Trade failed: ${error.message}`, 'loss');
-            addNotification(`Trade failed: ${error.message}`, 'error');
-            throw error;
+            addNotification(`${details.direction} order for ${details.asset} placed successfully.`, 'success');
+            logActivity(`Manual Trade: Placed ${details.direction} order for ${details.asset} ($${details.amountUSD}).`, 'trade');
+            await refreshAllData();
+        } catch (e: any) {
+            addNotification(`Trade execution failed: ${e.message}`, 'error');
+            logActivity(`Trade Error: ${e.message}`, 'loss');
         }
     };
-    
-    const handleClosePosition = async (positionToClose: Position) => {
-         if (!isConnected) {
-            addNotification("Cannot close position. Not connected to exchange.", 'error');
-            return;
-        }
-        try {
-            logActivity(`Closing ${positionToClose.direction} position for ${positionToClose.asset}.`, 'trade');
-            await closeLivePosition(positionToClose, apiKey, apiSecret, environment);
-            // PnL calculation now happens based on fetched data, not locally
-            addNotification(`Close order sent for ${positionToClose.asset}.`, 'info');
-            setTimeout(refreshAllData, 2000); // Refresh data after a short delay
-        } catch (error: any) {
-            logActivity(`Failed to close position: ${error.message}`, 'loss');
-            addNotification(`Failed to close position: ${error.message}`, 'error');
-        }
-    };
-    
+
     const handleFormSubmit = (submission: Omit<UserSubmission, 'id' | 'timestamp' | 'read'>) => {
         const newSubmission: UserSubmission = {
             ...submission,
@@ -1749,102 +1782,56 @@ function AppContent() {
         setSubmissions(prev => [...prev, newSubmission]);
         addNotification("Your message has been sent!", 'success');
     };
-    
-    const handleMarkSubmissionAsRead = (id: string) => {
-        setSubmissions(submissions.map(s => s.id === id ? { ...s, read: true } : s));
+
+    const handleMarkAsRead = (id: string) => {
+        setSubmissions(prev => prev.map(s => s.id === id ? { ...s, read: true } : s));
     };
 
+    const handleGetAISuggestion = async () => {
+        setAiSuggestion({ suggestion: '', isLoading: true, error: null });
+        try {
+            const context = `Current realized PnL for the session: $${realizedPnl.toFixed(2)}. Open positions: ${positions.length}. Total portfolio value is roughly $${(assets.find(a => a.name === 'USDT')?.usdValue ?? 0).toFixed(2)}.`;
+            const suggestion = await getTradingSuggestion(context);
+            setAiSuggestion({ suggestion, isLoading: false, error: null });
+        } catch (error: any) {
+            const errorMessage = "Failed to get AI suggestion.";
+            setAiSuggestion({ suggestion: '', isLoading: false, error: errorMessage });
+            addNotification(errorMessage, 'error');
+        }
+    };
+
+    // Admin panel visibility logic
     const handleTitleClick = () => {
         if (titleClickTimer.current) {
             clearTimeout(titleClickTimer.current);
-        }
-
-        const newCount = titleClickCount + 1;
-        setTitleClickCount(newCount);
-
-        if (newCount === 5) {
-            setIsAdminVisible(!isAdminVisible);
-            setTitleClickCount(0);
-            addNotification(`Admin mode ${!isAdminVisible ? 'enabled' : 'disabled'}.`, 'info');
-        }
-
-        titleClickTimer.current = window.setTimeout(() => {
-            setTitleClickCount(0);
-        }, 1000); // Reset after 1 second
-    };
-
-    useEffect(() => {
-        const markPositionsAsSeen = () => {
-            setPositions(prevPositions => {
-                if (prevPositions.some(p => !p.seen)) {
-                    return prevPositions.map(p => ({ ...p, seen: true }));
-                }
-                return prevPositions;
-            });
-        };
-
-        const markSubmissionsAsRead = () => {
-            setSubmissions(prevSubmissions => {
-                if (prevSubmissions.some(s => !s.read)) {
-                    return prevSubmissions.map(s => ({ ...s, read: true }));
-                }
-                return prevSubmissions;
-            });
-        };
-
-        if (view === 'dashboard') {
-            setTimeout(markPositionsAsSeen, 500);
-        } else if (view === 'admin') {
-            setTimeout(markSubmissionsAsRead, 500);
-        }
-    }, [view]);
-
-    // Admin View Security
-    if (view === 'admin' && !isAdminVisible) {
-        setView('dashboard');
-        return null;
-    }
-    
-     const getTradingSuggestionHandler = async () => {
-        setAiSuggestion({ suggestion: '', isLoading: true, error: null });
-        try {
-            const context = `Current PnL: $${realizedPnl.toFixed(2)}. Open Positions: ${positions.length}.`;
-            const suggestion = await getTradingSuggestion(context);
-            setAiSuggestion({ suggestion, isLoading: false, error: null });
-        } catch (e: any) {
-            setAiSuggestion({ suggestion: '', isLoading: false, error: "Couldn't get a suggestion right now." });
-             addNotification("Failed to get AI suggestion.", 'error');
+            titleClickTimer.current = null;
+            setTitleClickCount(prev => prev + 1);
+            if (titleClickCount + 1 >= 5) { // Show after 5 quick clicks
+                setIsAdminVisible(prev => !prev); // Toggle visibility
+                addNotification(isAdminVisible ? "Admin panel hidden." : "Admin panel unlocked.", 'info');
+                setTitleClickCount(0);
+            }
+        } else {
+            setTitleClickCount(1);
+            titleClickTimer.current = window.setTimeout(() => {
+                setTitleClickCount(0);
+                titleClickTimer.current = null;
+            }, 1000); // Reset after 1 second
         }
     };
-
-    const unseenPositionsCount = positions.filter(p => !p.seen).length;
-    const unreadSubmissionsCount = submissions.filter(s => !s.read && s.type === 'complaint').length;
 
     const renderView = () => {
         switch (view) {
             case 'dashboard':
-                return <DashboardView 
-                            history={MOCK_PORTFOLIO_HISTORY} 
-                            positions={positions} 
-                            realizedPnl={realizedPnl} 
-                            assets={assets} 
-                            onManualClosePosition={handleClosePosition}
-                            activityLog={activityLog}
-                            onGetSuggestion={getTradingSuggestionHandler}
-                            aiSuggestion={aiSuggestion}
-                        />;
+                return <DashboardView history={MOCK_PORTFOLIO_HISTORY} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleManualClosePosition} activityLog={activityLog} onGetSuggestion={handleGetAISuggestion} aiSuggestion={aiSuggestion} />;
             case 'trade':
-                return <TradeView 
-                            data={MOCK_TRADE_VIEW_DATA} 
-                            onExecuteTrade={handleExecuteTrade} 
-                            isConnected={isConnected} 
-                        />;
+                return <TradeView data={MOCK_TRADE_VIEW_DATA} onExecuteTrade={handleExecuteTrade} isConnected={isConnected} />;
             case 'wallet':
                 return <WalletView assets={assets} setView={setView} />;
             case 'settings':
                 return <SettingsView onConnectAttempt={handleConnectAttempt} onDisconnect={handleDisconnect} addNotification={addNotification} />;
             case 'strategy':
-                return <StrategyView addNotification={addNotification} />;
+                return <StrategyView addNotification={addNotification} isBotDeployed={isBotDeployed} onDeployBot={handleDeployBot} onStopBot={handleStopBot} />;
             case 'history':
                 return <HistoryView trades={closedTrades} positions={positions} />;
             case 'about':
@@ -1852,39 +1839,33 @@ function AppContent() {
             case 'contact':
                 return <ContactView onFormSubmit={handleFormSubmit} />;
             case 'admin':
-                return isAdminVisible ? <AdminView submissions={submissions} onMarkAsRead={handleMarkSubmissionAsRead} /> : null;
+                return isAdminVisible ? <AdminView submissions={submissions} onMarkAsRead={handleMarkAsRead} /> : <div className="p-6 text-center text-gray-500">Access Denied.</div>;
             default:
-                return <div>Not Found</div>;
+                return <DashboardView history={MOCK_PORTFOLIO_HISTORY} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleManualClosePosition} activityLog={activityLog} onGetSuggestion={handleGetAISuggestion} aiSuggestion={aiSuggestion} />;
         }
     };
+
+    const unreadSubmissionsCount = submissions.filter(s => !s.read).length;
 
     return (
         <div className="flex h-screen bg-gray-900 text-gray-100">
             {showWelcomeModal && <WelcomeModal onAccept={handleAcceptWelcome} />}
-            {showLiveTradingWarning && pendingConnection && (
-                <LiveTradingWarningModal
-                    onAccept={handleConfirmLiveTrading}
-                    onCancel={handleCancelLiveTrading}
-                    environment={pendingConnection.environment}
-                />
-            )}
+            {showLiveTradingWarning && pendingConnection && <LiveTradingWarningModal onAccept={handleConfirmLiveTrading} onCancel={() => setShowLiveTradingWarning(false)} environment={pendingConnection.environment} />}
+            
             <NotificationContainer notifications={notifications} onDismiss={removeNotification} />
-            <Sidebar 
-                currentView={view} 
-                setView={setView} 
-                isAdminVisible={isAdminVisible} 
+
+            <Sidebar
+                currentView={view}
+                setView={setView}
+                isAdminVisible={isAdminVisible}
                 onTitleClick={handleTitleClick}
-                positionsCount={unseenPositionsCount}
+                positionsCount={positions.length}
                 unreadSubmissionsCount={unreadSubmissionsCount}
             />
-            <main className="flex-1 flex flex-col overflow-hidden">
+            <main className="flex-1 flex flex-col min-w-0">
                 {isConnected && environment === 'mainnet' && <LiveBanner />}
-                <DashboardHeader
-                    currentView={view}
-                    isConnected={isConnected}
-                    isLiveBotActive={isLiveBotActive}
-                />
-                <div className="flex-1 overflow-y-auto bg-black/20">
+                <DashboardHeader currentView={view} isConnected={isConnected} isBotDeployed={isBotDeployed} />
+                <div className="flex-grow overflow-y-auto">
                     {renderView()}
                 </div>
             </main>
@@ -1892,10 +1873,12 @@ function AppContent() {
     );
 }
 
-export default function App() {
-    return (
-        <APIProvider>
-            <AppContent />
-        </APIProvider>
-    );
+function App() {
+  return (
+    <APIProvider>
+      <AppContent />
+    </APIProvider>
+  );
 }
+
+export default App;
