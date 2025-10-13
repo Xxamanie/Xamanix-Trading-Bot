@@ -39,7 +39,12 @@ async function makeRequest(
     let fullUrl = baseUrl + path;
 
     if (method === 'GET') {
-        const queryString = new URLSearchParams(params).toString();
+        // FIX: Bybit API requires query parameters to be sorted alphabetically for valid signature generation.
+        const sortedParams: Record<string, string> = {};
+        Object.keys(params).sort().forEach(key => {
+            sortedParams[key] = params[key];
+        });
+        const queryString = new URLSearchParams(sortedParams).toString();
         if (queryString) {
             fullUrl += '?' + queryString;
             signaturePayload = queryString;
