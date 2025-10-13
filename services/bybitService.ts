@@ -143,6 +143,8 @@ interface ExecuteTradeDetails {
     asset: string; // e.g., 'BTC/USD'
     direction: 'LONG' | 'SHORT';
     amountUSD: number;
+    orderType: 'Market' | 'Limit';
+    limitPrice?: string;
 }
 
 export const executeLiveTrade = async (details: ExecuteTradeDetails, apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet'): Promise<void> => {
@@ -152,16 +154,26 @@ export const executeLiveTrade = async (details: ExecuteTradeDetails, apiKey: str
     const tickerResult = await makeRequest('GET', '/v5/market/tickers', { category: 'linear', symbol }, apiKey, apiSecret, environment);
     const markPrice = parseFloat(tickerResult.list[0].markPrice);
     if (!markPrice) throw new Error(`Could not fetch market price for ${symbol}`);
+    
+    const priceForQtyCalc = details.orderType === 'Limit' && details.limitPrice ? parseFloat(details.limitPrice) : markPrice;
+    if (!priceForQtyCalc) throw new Error(`Could not determine price for quantity calculation for ${symbol}`);
+    const quantity = (details.amountUSD / priceForQtyCalc).toFixed(3); // Adjust precision as needed
 
-    const quantity = (details.amountUSD / markPrice).toFixed(3); // Adjust precision as needed for different assets
-
-    const order = {
+    const order: any = {
         category: 'linear',
         symbol: symbol,
         side: details.direction === 'LONG' ? 'Buy' : 'Sell',
-        orderType: 'Market',
+        orderType: details.orderType,
         qty: quantity,
     };
+
+    if (details.orderType === 'Limit') {
+        if (!details.limitPrice || isNaN(parseFloat(details.limitPrice))) {
+            throw new Error('A valid limit price is required for Limit orders.');
+        }
+        order.price = details.limitPrice;
+    }
+
 
     await makeRequest('POST', '/v5/order/create', order, apiKey, apiSecret, environment);
 };

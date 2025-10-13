@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification, Order } from './types';
 import { MOCK_PORTFOLIO_HISTORY, MOCK_TRADE_VIEW_DATA, DEFAULT_SCRIPT } from './constants';
@@ -326,12 +325,13 @@ const OrderBook: React.FC<{ bids: Order[]; asks: Order[]; }> = ({ bids, asks }) 
 
 interface TradeViewProps {
   data: TradeViewData;
-  onExecuteTrade: (details: { asset: string, direction: 'LONG' | 'SHORT', amountUSD: number }) => void;
+  onExecuteTrade: (details: { asset: string, direction: 'LONG' | 'SHORT', amountUSD: number, orderType: 'Market' | 'Limit', limitPrice?: string }) => void;
   isConnected: boolean;
 }
 
 const TradeView: React.FC<TradeViewProps> = (props) => {
     const { data, onExecuteTrade, isConnected } = props;
+    const { tradeMethod } = useAPI();
     const chartRef = useRef<HTMLCanvasElement | null>(null);
     const chartInstance = useRef<any | null>(null);
     const [market, setMarket] = useState(Object.keys(data)[0]);
@@ -344,6 +344,7 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
 
     const [stopLoss, setStopLoss] = useState('2.0');
     const [tradeAmount, setTradeAmount] = useState('100');
+    const [limitPrice, setLimitPrice] = useState('');
     const [isTrading, setIsTrading] = useState(false);
 
     useEffect(() => {
@@ -401,8 +402,11 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
         const initialEmaData = calculateEMA(initialPrices, movingAveragePeriod);
         
         if (initialPrices.length > 0) {
-            setOrderBook(generateOrderBookData(initialPrices[initialPrices.length - 1], market));
+            const currentPrice = initialPrices[initialPrices.length - 1];
+            setOrderBook(generateOrderBookData(currentPrice, market));
+            setLimitPrice(currentPrice.toFixed(2));
         }
+
 
         chartInstance.current = new Chart(ctx, {
             data: {
@@ -533,6 +537,10 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
             console.error("Invalid trade amount");
             return;
         }
+        if (tradeMethod === 'Limit' && (isNaN(parseFloat(limitPrice)) || parseFloat(limitPrice) <= 0)) {
+            console.error("Invalid limit price");
+            return;
+        }
         
         setIsTrading(true);
 
@@ -558,7 +566,9 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
             await onExecuteTrade({
                 asset: market,
                 direction: direction,
-                amountUSD: amount
+                amountUSD: amount,
+                orderType: tradeMethod,
+                limitPrice: tradeMethod === 'Limit' ? limitPrice : undefined
             });
         } finally {
              setIsTrading(false);
@@ -592,7 +602,11 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
                     <h3 className="text-lg font-semibold text-white mb-4">Manual Trade</h3>
                     <div className="grid grid-cols-2 gap-4">
                         <Input label="Trade Amount" value={tradeAmount} onChange={(e) => setTradeAmount(e.target.value)} leadingAddon="$" />
-                        <Input label="Stop Loss (%)" value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} />
+                         {tradeMethod === 'Limit' ? (
+                            <Input label="Limit Price" value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} leadingAddon="$" />
+                        ) : (
+                            <Input label="Stop Loss (%)" value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} />
+                        )}
                     </div>
                     <div className="mt-4 pt-4 border-t border-gray-700/50 flex justify-between items-center">
                             <div className="relative group flex space-x-3 w-full">
@@ -693,7 +707,7 @@ const WalletView: React.FC<{ assets: Asset[], setView: (view: string) => void }>
 
 
 const SettingsView: React.FC<{ onConnectAttempt: (apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet') => Promise<void>, onDisconnect: () => void, addNotification: (message: string, type: Notification['type']) => void }> = ({ onConnectAttempt, onDisconnect, addNotification }) => {
-    const { apiKey, setApiKey, apiSecret, setApiSecret, isConnected, environment, setEnvironment } = useAPI();
+    const { apiKey, setApiKey, apiSecret, setApiSecret, isConnected, environment, setEnvironment, tradeMethod, setTradeMethod } = useAPI();
     const [isVerifying, setIsVerifying] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -790,6 +804,34 @@ const SettingsView: React.FC<{ onConnectAttempt: (apiKey: string, apiSecret: str
                                 <Button onClick={handleDisconnect} variant="secondary">Disconnect</Button>
                             </div>
                         )}
+                    </div>
+                </div>
+            </Card>
+             <Card className="p-6">
+                <h3 className="text-lg font-semibold text-white mb-4">Trade Settings</h3>
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-400 mb-2">Default Order Type</label>
+                        <div className="flex space-x-2 bg-gray-700 p-1 rounded-lg">
+                            <button
+                                onClick={() => setTradeMethod('Market')}
+                                className={`w-1/2 py-2 rounded-md text-sm font-semibold transition-colors ${tradeMethod === 'Market' ? 'bg-cyan-500 text-white' : 'text-gray-300 hover:bg-gray-600'}`}
+                            >
+                                Market
+                            </button>
+                            <button
+                                onClick={() => setTradeMethod('Limit')}
+                                className={`w-1/2 py-2 rounded-md text-sm font-semibold transition-colors ${tradeMethod === 'Limit' ? 'bg-cyan-500 text-white' : 'text-gray-300 hover:bg-gray-600'}`}
+                            >
+                                Limit
+                            </button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2">
+                            {tradeMethod === 'Market'
+                                ? 'Market orders execute immediately at the best available price.'
+                                : 'Limit orders execute only at your specified price or better.'
+                            }
+                        </p>
                     </div>
                 </div>
             </Card>
@@ -1790,15 +1832,16 @@ function AppContent() {
         }
     };
     
-    const handleExecuteTrade = async (details: { asset: string, direction: 'LONG' | 'SHORT', amountUSD: number }) => {
+    const handleExecuteTrade = async (details: { asset: string, direction: 'LONG' | 'SHORT', amountUSD: number, orderType: 'Market' | 'Limit', limitPrice?: string }) => {
         if (!apiKey || !apiSecret) {
             addNotification("API keys not configured.", 'error');
             return;
         }
         try {
             await executeLiveTrade(details, apiKey, apiSecret, environment);
-            addNotification(`${details.direction} order for ${details.asset} placed successfully.`, 'success');
-            logActivity(`Manual Trade: Placed ${details.direction} order for ${details.asset} ($${details.amountUSD}).`, 'trade');
+            const orderDesc = details.orderType === 'Limit' ? `Limit ${details.direction} @ $${details.limitPrice}` : `Market ${details.direction}`;
+            addNotification(`${orderDesc} order for ${details.asset} placed successfully.`, 'success');
+            logActivity(`Manual Trade: Placed ${orderDesc} order for ${details.asset} ($${details.amountUSD}).`, 'trade');
             await refreshAllData();
         } catch (e: any) {
             addNotification(`Trade execution failed: ${e.message}`, 'error');

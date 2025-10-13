@@ -9,6 +9,8 @@ interface APIContextType {
   setIsConnected: (status: boolean) => void;
   environment: 'testnet' | 'mainnet';
   setEnvironment: (env: 'testnet' | 'mainnet') => void;
+  tradeMethod: 'Market' | 'Limit';
+  setTradeMethod: (method: 'Market' | 'Limit') => void;
 }
 
 const APIContext = createContext<APIContextType | undefined>(undefined);
@@ -19,6 +21,7 @@ export const APIProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [apiSecret, setApiSecret] = useState<string>(() => localStorage.getItem('xamanix-apiSecret') || '');
   const [isConnected, setIsConnected] = useState<boolean>(() => localStorage.getItem('xamanix-isConnected') === 'true');
   const [environment, setEnvironment] = useState<'testnet' | 'mainnet'>(() => (localStorage.getItem('xamanix-environment') as 'testnet' | 'mainnet') || 'testnet');
+  const [tradeMethod, setTradeMethod] = useState<'Market' | 'Limit'>(() => (localStorage.getItem('xamanix-tradeMethod') as 'Market' | 'Limit') || 'Market');
 
 
   // Persist state changes to localStorage
@@ -54,8 +57,16 @@ export const APIProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [environment]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('xamanix-tradeMethod', tradeMethod);
+    } catch (e) {
+      console.error("Failed to save trade method to localStorage", e);
+    }
+  }, [tradeMethod]);
+
   return (
-    <APIContext.Provider value={{ apiKey, setApiKey, apiSecret, setApiSecret, isConnected, setIsConnected, environment, setEnvironment }}>
+    <APIContext.Provider value={{ apiKey, setApiKey, apiSecret, setApiSecret, isConnected, setIsConnected, environment, setEnvironment, tradeMethod, setTradeMethod }}>
       {children}
     </APIContext.Provider>
   );
