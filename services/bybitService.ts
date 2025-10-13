@@ -39,7 +39,6 @@ async function makeRequest(
     let fullUrl = baseUrl + path;
 
     if (method === 'GET') {
-        // FIX: Bybit API requires query parameters to be sorted alphabetically for valid signature generation.
         const sortedParams: Record<string, string> = {};
         Object.keys(params).sort().forEach(key => {
             sortedParams[key] = params[key];
@@ -70,7 +69,23 @@ async function makeRequest(
         body: requestBody,
     });
 
-    const data = await response.json();
+    if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Could not retrieve error body.');
+        throw new Error(`Bybit API request failed with status ${response.status}: ${errorText}`);
+    }
+    
+    const responseText = await response.text();
+    if (!responseText) {
+        throw new Error("Received an empty response from Bybit API.");
+    }
+    
+    let data;
+    try {
+        data = JSON.parse(responseText);
+    } catch (e) {
+        // This will catch the "unexpected end of JSON input" error and provide more context.
+        throw new Error(`Failed to parse JSON response from Bybit. Response: ${responseText}`);
+    }
 
     if (data.retCode !== 0) {
         throw new Error(`Bybit API Error: ${data.retMsg} (Code: ${data.retCode})`);
