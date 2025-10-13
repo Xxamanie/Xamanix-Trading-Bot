@@ -1,11 +1,14 @@
+
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification, Order } from './types';
 import { MOCK_PORTFOLIO_HISTORY, MOCK_TRADE_VIEW_DATA, DEFAULT_SCRIPT } from './constants';
-import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, SunIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon, ExclamationTriangleIcon, BellIcon, ExternalLinkIcon, ShieldCheckIcon } from './components/icons';
+// FIX: Import PlayIcon to resolve reference error in StrategyView.
+import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, SunIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, PlayIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon, ExclamationTriangleIcon, BellIcon, ExternalLinkIcon, ShieldCheckIcon } from './components/icons';
 import RecommendationsPanel from './components/RecommendationsPanel';
 import BacktestResults from './components/BacktestResults';
 import CodeViewer from './components/CodeViewer';
-import { analyzeCode, runBacktest, generateEnhancedCode, getTradingSuggestion } from './services/geminiService';
+import { analyzeCode, runBacktest, generateEnhancedCode, getTradingSuggestion, generateLiveBotScript } from './services/geminiService';
 import { APIProvider, useAPI } from './contexts/APIContext';
 import { verifyAndFetchBalances, fetchPositions, executeLiveTrade, closeLivePosition } from './services/bybitService';
 import { LinkIcon } from './components/icons';
@@ -809,10 +812,10 @@ const SettingsView: React.FC<{ onConnectAttempt: (apiKey: string, apiSecret: str
 
 const StrategyView: React.FC<{
     addNotification: (message: string, type: Notification['type']) => void;
-    isBotDeployed: boolean;
-    onDeployBot: () => void;
-    onStopBot: () => void;
-}> = ({ addNotification, isBotDeployed, onDeployBot, onStopBot }) => {
+    isBotSimulating: boolean;
+    onStartSimulation: () => void;
+    onStopSimulation: () => void;
+}> = ({ addNotification, isBotSimulating, onStartSimulation, onStopSimulation }) => {
     const [originalCode, setOriginalCode] = useState<string>(DEFAULT_SCRIPT);
     const [enhancedCode, setEnhancedCode] = useState<string>('');
   
@@ -827,6 +830,8 @@ const StrategyView: React.FC<{
     const [isBacktestRunning, setIsBacktestRunning] = useState<boolean>(false);
     const [backtestError, setBacktestError] = useState<string | null>(null);
     const [activeBacktest, setActiveBacktest] = useState<'none' | 'original' | 'enhanced'>('none');
+    
+    const [isExporting, setIsExporting] = useState<boolean>(false);
 
     const handleAnalyze = async () => {
         setIsLoadingAnalysis(true);
@@ -895,6 +900,33 @@ const StrategyView: React.FC<{
             setIsBacktestRunning(false);
         }
     };
+
+    const downloadFile = (content: string, fileName: string, contentType: string) => {
+        const a = document.createElement("a");
+        const file = new Blob([content], { type: contentType });
+        a.href = URL.createObjectURL(file);
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+    };
+
+    const handleExportScript = async () => {
+        if (!enhancedCode) return;
+        setIsExporting(true);
+        try {
+            const liveScriptContent = await generateLiveBotScript(enhancedCode);
+            downloadFile(liveScriptContent, 'live_trading_bot.py', 'text/x-python');
+            addNotification('Live bot script exported successfully!', 'success');
+        } catch (error: any) {
+            console.error("Failed to export live bot script:", error);
+            addNotification(`Error exporting script: ${error.message}`, 'error');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
 
     return (
         <div className="p-6 space-y-6 h-full overflow-y-auto">
@@ -965,25 +997,25 @@ const StrategyView: React.FC<{
                             onRunBacktest={() => handleRunBacktest('original')}
                         />
                         <div className="flex flex-col space-y-4 bg-gray-800 rounded-lg p-4 border border-gray-700">
-                             <h3 className="text-lg font-semibold text-white">Live Bot Deployment</h3>
-                             {isBotDeployed ? (
+                             <h3 className="text-lg font-semibold text-white">Bot Simulation</h3>
+                             {isBotSimulating ? (
                                 <>
                                  <div className="bg-green-900/50 border border-green-700 text-green-300 rounded-lg p-4 text-center">
-                                    <p className="font-bold">Your bot is LIVE and running in our simulated cloud environment.</p>
-                                    <p className="text-sm mt-1">Check the Dashboard for activity logs.</p>
+                                    <p className="font-bold">Bot simulation is LIVE.</p>
+                                    <p className="text-sm mt-1">Check the Dashboard for mock activity logs.</p>
                                  </div>
-                                 <Button onClick={onStopBot} variant='secondary' className='!bg-red-600 hover:!bg-red-700 w-full'>
-                                     Stop Live Bot
+                                 <Button onClick={onStopSimulation} variant='secondary' className='!bg-red-600 hover:!bg-red-700 w-full'>
+                                     Stop Simulation
                                  </Button>
                                 </>
                              ) : (
                                 <>
                                  <p className="text-sm text-gray-400">
-                                    Once you are satisfied with your enhanced script and backtest results, you can deploy it to our simulated cloud environment to run 24/7.
+                                    Run a simulation of your bot in a virtual cloud environment to see mock activity 24/7. This does not execute real trades.
                                  </p>
-                                 <Button onClick={onDeployBot} variant='primary' disabled={!enhancedCode || isGeneratingScript}>
+                                 <Button onClick={onStartSimulation} variant='primary' disabled={!enhancedCode || isGeneratingScript}>
                                      <div className="flex items-center justify-center">
-                                         <RocketIcon /> <span className="ml-2">Deploy Enhanced Script as Live Bot</span>
+                                         <PlayIcon className="!w-5 !h-5" /> <span className="ml-2">Start Bot Simulation</span>
                                      </div>
                                  </Button>
                                 </>
@@ -995,6 +1027,8 @@ const StrategyView: React.FC<{
                             isLoading={isGeneratingScript}
                             isBacktestRunning={isBacktestRunning && activeBacktest === 'enhanced'}
                             onRunBacktest={() => handleRunBacktest('enhanced')}
+                            onExportScript={handleExportScript}
+                            isExporting={isExporting}
                         />
                     </div>
                 </div>
@@ -1394,8 +1428,8 @@ const StatusIndicator: React.FC<{ label: string; status: 'positive' | 'neutral' 
 const DashboardHeader: React.FC<{
     currentView: string;
     isConnected: boolean;
-    isBotDeployed: boolean;
-}> = ({ currentView, isConnected, isBotDeployed }) => {
+    isBotSimulating: boolean;
+}> = ({ currentView, isConnected, isBotSimulating }) => {
     const { environment } = useAPI();
     const title = currentView.charAt(0).toUpperCase() + currentView.slice(1);
 
@@ -1411,10 +1445,10 @@ const DashboardHeader: React.FC<{
             <h2 className="text-xl font-bold text-white">{title}</h2>
             <div className="flex items-center space-x-6">
                  <StatusIndicator 
-                    label="Live Bot Status"
-                    status={isBotDeployed ? 'positive' : 'negative'}
-                    text={isBotDeployed ? 'Active' : 'Inactive'}
-                    tooltip="Deploy a bot from the 'Strategy' tab to activate."
+                    label="Bot Simulation"
+                    status={isBotSimulating ? 'positive' : 'negative'}
+                    text={isBotSimulating ? 'Active' : 'Inactive'}
+                    tooltip="Start a simulation from the 'Strategy' tab."
                 />
                  <StatusIndicator 
                     label="Environment"
@@ -1589,7 +1623,7 @@ function AppContent() {
     const [showLiveTradingWarning, setShowLiveTradingWarning] = useState(false);
     const [pendingConnection, setPendingConnection] = useState<{ apiKey: string; apiSecret: string, environment: 'testnet' | 'mainnet' } | null>(null);
     const [showWelcomeModal, setShowWelcomeModal] = useState<boolean>(false);
-    const [isBotDeployed, setIsBotDeployed] = useState<boolean>(() => localStorage.getItem('xamanix-botDeployed') === 'true');
+    const [isBotSimulating, setIsBotSimulating] = useState<boolean>(() => localStorage.getItem('xamanix-botSimulating') === 'true');
 
     useEffect(() => {
         const welcomeSeen = localStorage.getItem('xamanix-welcome-seen');
@@ -1627,23 +1661,23 @@ function AppContent() {
     };
     
     // Bot Deployment and Simulation Logic
-    const handleDeployBot = () => {
-        setIsBotDeployed(true);
-        localStorage.setItem('xamanix-botDeployed', 'true');
-        addNotification("Live bot has been deployed!", 'success');
-        logActivity("Live bot deployed and running in simulated cloud.", 'info');
+    const handleStartSimulation = () => {
+        setIsBotSimulating(true);
+        localStorage.setItem('xamanix-botSimulating', 'true');
+        addNotification("Live bot simulation has been started!", 'success');
+        logActivity("Bot simulation started.", 'info');
     };
 
-    const handleStopBot = () => {
-        setIsBotDeployed(false);
-        localStorage.setItem('xamanix-botDeployed', 'false');
-        addNotification("Live bot has been stopped.", 'info');
-        logActivity("Live bot stopped.", 'info');
+    const handleStopSimulation = () => {
+        setIsBotSimulating(false);
+        localStorage.setItem('xamanix-botSimulating', 'false');
+        addNotification("Live bot simulation has been stopped.", 'info');
+        logActivity("Bot simulation stopped.", 'info');
     };
     
     // Effect to simulate bot activity
     useEffect(() => {
-        if (isBotDeployed) {
+        if (isBotSimulating) {
             botActivityInterval.current = window.setInterval(() => {
                 const randomAction = Math.random();
                 if (randomAction < 0.2) { // Simulate a trade
@@ -1663,7 +1697,7 @@ function AppContent() {
                     setRealizedPnl(prev => prev + pnl);
                     logActivity(`Simulated Bot Trade: Closed ${newTrade.direction} ${newTrade.asset} for $${pnl.toFixed(2)} PnL.`, pnl > 0 ? 'profit' : 'loss');
                 } else { // Simulate a log message
-                     logActivity("Live Bot: Analyzing market for signals...", 'info');
+                     logActivity("Simulated Bot: Analyzing market for signals...", 'info');
                 }
             }, 8000); // Activity every 8 seconds
         }
@@ -1673,7 +1707,7 @@ function AppContent() {
                 clearInterval(botActivityInterval.current);
             }
         };
-    }, [isBotDeployed]);
+    }, [isBotSimulating]);
 
 
     const refreshAllData = useCallback(async () => {
@@ -1831,7 +1865,7 @@ function AppContent() {
             case 'settings':
                 return <SettingsView onConnectAttempt={handleConnectAttempt} onDisconnect={handleDisconnect} addNotification={addNotification} />;
             case 'strategy':
-                return <StrategyView addNotification={addNotification} isBotDeployed={isBotDeployed} onDeployBot={handleDeployBot} onStopBot={handleStopBot} />;
+                return <StrategyView addNotification={addNotification} isBotSimulating={isBotSimulating} onStartSimulation={handleStartSimulation} onStopSimulation={handleStopSimulation} />;
             case 'history':
                 return <HistoryView trades={closedTrades} positions={positions} />;
             case 'about':
@@ -1864,7 +1898,7 @@ function AppContent() {
             />
             <main className="flex-1 flex flex-col min-w-0">
                 {isConnected && environment === 'mainnet' && <LiveBanner />}
-                <DashboardHeader currentView={view} isConnected={isConnected} isBotDeployed={isBotDeployed} />
+                <DashboardHeader currentView={view} isConnected={isConnected} isBotSimulating={isBotSimulating} />
                 <div className="flex-grow overflow-y-auto">
                     {renderView()}
                 </div>
