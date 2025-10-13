@@ -39,11 +39,12 @@ async function makeRequest(
     let fullUrl = baseUrl + path;
 
     if (method === 'GET') {
-        const sortedParams: Record<string, string> = {};
-        Object.keys(params).sort().forEach(key => {
-            sortedParams[key] = params[key];
-        });
-        const queryString = new URLSearchParams(sortedParams).toString();
+        // Build the query string from sorted keys to ensure a consistent signature.
+        const queryString = Object.keys(params)
+            .sort()
+            .map(key => `${key}=${params[key]}`)
+            .join('&');
+            
         if (queryString) {
             fullUrl += '?' + queryString;
             signaturePayload = queryString;
@@ -71,6 +72,10 @@ async function makeRequest(
 
     if (!response.ok) {
         const errorText = await response.text().catch(() => 'Could not retrieve error body.');
+         // Provide a more specific error for 401 Unauthorized
+        if (response.status === 401) {
+             throw new Error(`Bybit API Error (401 Unauthorized): Please check if your API Key, Secret, and selected environment (${environment}) are correct. The request signature may be invalid.`);
+        }
         throw new Error(`Bybit API request failed with status ${response.status}: ${errorText}`);
     }
     
