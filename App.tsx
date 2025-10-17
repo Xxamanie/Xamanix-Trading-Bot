@@ -1,16 +1,16 @@
 
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification, Order } from './types';
 import { MOCK_PORTFOLIO_HISTORY, MOCK_TRADE_VIEW_DATA, DEFAULT_SCRIPT } from './constants';
-// FIX: Import PlayIcon to resolve reference error in StrategyView.
-import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, SunIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, PlayIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon, ExclamationTriangleIcon, BellIcon, ExternalLinkIcon, ShieldCheckIcon } from './components/icons';
+import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, PlayIcon, StopIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon, ExclamationTriangleIcon, BellIcon, ExternalLinkIcon, ShieldCheckIcon, LinkIcon } from './components/icons';
 import RecommendationsPanel from './components/RecommendationsPanel';
 import BacktestResults from './components/BacktestResults';
 import CodeViewer from './components/CodeViewer';
 import { analyzeCode, runBacktest, generateEnhancedCode, getTradingSuggestion, generateLiveBotScript } from './services/geminiService';
 import { APIProvider, useAPI } from './contexts/APIContext';
 import { verifyAndFetchBalances, fetchPositions, executeLiveTrade, closeLivePosition } from './services/bybitService';
-import { LinkIcon } from './components/icons';
+import DashboardHeader from './components/DashboardHeader';
 
 
 // @ts-ignore - Chart is loaded from a script tag in index.html
@@ -72,6 +72,33 @@ const Textarea: React.FC<{ label: string; value: string; onChange: (e: React.Cha
             className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 resize-y"
         />
     </div>
+);
+
+const ToggleSwitch: React.FC<{
+  label: string;
+  enabled: boolean;
+  onChange: (enabled: boolean) => void;
+  disabled?: boolean;
+}> = ({ label, enabled, onChange, disabled = false }) => (
+  <div className="flex items-center justify-between py-2">
+    <span className={`font-medium ${disabled ? 'text-gray-500' : 'text-gray-300'}`}>{label}</span>
+    <button
+      type="button"
+      onClick={() => !disabled && onChange(!enabled)}
+      disabled={disabled}
+      className={`${
+        enabled ? 'bg-cyan-500' : 'bg-gray-600'
+      } relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 focus:ring-offset-gray-800 disabled:opacity-50 disabled:cursor-not-allowed ml-4`}
+      aria-pressed={enabled}
+    >
+      <span
+        aria-hidden="true"
+        className={`${
+          enabled ? 'translate-x-5' : 'translate-x-0'
+        } pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out`}
+      />
+    </button>
+  </div>
 );
 
 interface AIStatusPanelProps {
@@ -477,6 +504,11 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
             const sellDataset = datasets[3];
             
             const lastPrice = priceDataset.data[priceDataset.data.length - 1];
+
+            if (typeof lastPrice !== 'number' || !isFinite(lastPrice)) {
+                // If last price is invalid, skip this update to prevent chart errors
+                return;
+            }
 
             let volatility = 0.0001;
             if (market.includes('SOL')) volatility = 0.0005;
@@ -1013,67 +1045,81 @@ const StrategyView: React.FC<{
             )}
 
             {analysisResult && !isLoadingAnalysis && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
-                    <div className="space-y-6 flex flex-col min-h-0">
-                        <RecommendationsPanel 
-                            analysis={analysisResult}
-                            appliedRecommendations={appliedRecommendations}
-                            onToggleRecommendation={handleToggleRecommendation}
-                            onGenerateScript={handleGenerateScript}
-                            isGenerating={isGeneratingScript}
-                        />
+                <>
+                    <div className="flex-shrink-0 bg-gray-800 rounded-lg shadow-lg p-4 mb-6 flex justify-between items-center border border-gray-700">
+                        <div className="flex items-center space-x-4">
+                            <RocketIcon className="h-8 w-8 text-cyan-400" />
+                            <div>
+                                <h3 className="text-lg font-semibold text-white">Live AI Deployment (Simulation)</h3>
+                                <p className="text-sm text-gray-400">Deploy your enhanced strategy to a 24/7 simulated environment.</p>
+                            </div>
+                        </div>
+                        <div className="flex-shrink-0 relative group">
+                            {!isBotSimulating ? (
+                                <Button
+                                    onClick={onStartSimulation}
+                                    variant="primary"
+                                    disabled={!enhancedCode || isGeneratingScript}
+                                    className="!px-5 !py-2.5 flex items-center"
+                                >
+                                    <PlayIcon className="h-5 w-5" />
+                                    <span className="ml-2 font-semibold">Deploy Strategy</span>
+                                </Button>
+                            ) : (
+                                <Button
+                                    onClick={onStopSimulation}
+                                    variant="secondary"
+                                    className="!bg-red-600 hover:!bg-red-700 !focus:ring-red-500 !text-white !px-5 !py-2.5 flex items-center"
+                                >
+                                    <StopIcon className="h-5 w-5" />
+                                    <span className="ml-2 font-semibold">Stop Deployment</span>
+                                </Button>
+                            )}
+                            {/* Tooltip for disabled state */}
+                            {(!enhancedCode || isGeneratingScript) && (
+                                <div className="absolute bottom-full mb-2 w-max bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 left-1/2 -translate-x-1/2">
+                                    Generate an enhanced script to enable deployment.
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
+                        <div className="space-y-6 flex flex-col min-h-0">
+                            <RecommendationsPanel 
+                                analysis={analysisResult}
+                                appliedRecommendations={appliedRecommendations}
+                                onToggleRecommendation={handleToggleRecommendation}
+                                onGenerateScript={handleGenerateScript}
+                                isGenerating={isGeneratingScript}
+                            />
 
-                         <div className="flex-grow">
-                             <BacktestResults 
-                                results={backtestResult}
-                                isLoading={isBacktestRunning}
-                                error={backtestError}
-                             />
+                             <div className="flex-grow">
+                                 <BacktestResults 
+                                    results={backtestResult}
+                                    isLoading={isBacktestRunning}
+                                    error={backtestError}
+                                 />
+                            </div>
+                        </div>
+                        <div className="space-y-6 flex flex-col min-h-0">
+                            <CodeViewer
+                                title="Original Script"
+                                code={originalCode}
+                                isBacktestRunning={isBacktestRunning && activeBacktest === 'original'}
+                                onRunBacktest={() => handleRunBacktest('original')}
+                            />
+                            <CodeViewer
+                                title="Enhanced Script"
+                                code={enhancedCode}
+                                isLoading={isGeneratingScript}
+                                isBacktestRunning={isBacktestRunning && activeBacktest === 'enhanced'}
+                                onRunBacktest={() => handleRunBacktest('enhanced')}
+                                onExportScript={handleExportScript}
+                                isExporting={isExporting}
+                            />
                         </div>
                     </div>
-                    <div className="space-y-6 flex flex-col min-h-0">
-                        <CodeViewer
-                            title="Original Script"
-                            code={originalCode}
-                            isBacktestRunning={isBacktestRunning && activeBacktest === 'original'}
-                            onRunBacktest={() => handleRunBacktest('original')}
-                        />
-                        <div className="flex flex-col space-y-4 bg-gray-800 rounded-lg p-4 border border-gray-700">
-                             <h3 className="text-lg font-semibold text-white">Bot Simulation</h3>
-                             {isBotSimulating ? (
-                                <>
-                                 <div className="bg-green-900/50 border border-green-700 text-green-300 rounded-lg p-4 text-center">
-                                    <p className="font-bold">Bot simulation is LIVE.</p>
-                                    <p className="text-sm mt-1">Check the Dashboard for mock activity logs.</p>
-                                 </div>
-                                 <Button onClick={onStopSimulation} variant='secondary' className='!bg-red-600 hover:!bg-red-700 w-full'>
-                                     Stop Simulation
-                                 </Button>
-                                </>
-                             ) : (
-                                <>
-                                 <p className="text-sm text-gray-400">
-                                    Run a simulation of your bot in a virtual cloud environment to see mock activity 24/7. This does not execute real trades.
-                                 </p>
-                                 <Button onClick={onStartSimulation} variant='primary' disabled={!enhancedCode || isGeneratingScript}>
-                                     <div className="flex items-center justify-center">
-                                         <PlayIcon className="!w-5 !h-5" /> <span className="ml-2">Start Bot Simulation</span>
-                                     </div>
-                                 </Button>
-                                </>
-                             )}
-                        </div>
-                        <CodeViewer
-                            title="Enhanced Script"
-                            code={enhancedCode}
-                            isLoading={isGeneratingScript}
-                            isBacktestRunning={isBacktestRunning && activeBacktest === 'enhanced'}
-                            onRunBacktest={() => handleRunBacktest('enhanced')}
-                            onExportScript={handleExportScript}
-                            isExporting={isExporting}
-                        />
-                    </div>
-                </div>
+                </>
             )}
         </div>
     );
@@ -1353,7 +1399,6 @@ const AdminView: React.FC<{ submissions: UserSubmission[], onMarkAsRead: (id: st
 };
 
 // Main App Structure
-// FIX: Define a type for navigation items to ensure type safety for items with and without badges.
 interface NavItemData {
     id: string;
     label: string;
@@ -1436,72 +1481,9 @@ const Sidebar: React.FC<{
                         label={item.label}
                         isActive={currentView === item.id}
                         onClick={() => setView(item.id)}
-                        // FIX: Removed @ts-ignore as the type is now correct.
                         badge={item.badge}
                     />
                 ))}
-            </div>
-        </div>
-    );
-};
-
-const StatusIndicator: React.FC<{ label: string; status: 'positive' | 'neutral' | 'negative'; text: string; tooltip?: string; }> = ({ label, status, text, tooltip }) => {
-    const colorClasses = {
-        positive: 'bg-green-500',
-        neutral: 'bg-gray-500',
-        negative: 'bg-red-500',
-    };
-    return (
-        <div className="relative group flex items-center space-x-2">
-            <span className="text-sm text-gray-400">{label}:</span>
-            <div className="flex items-center space-x-1.5">
-                <div className={`w-2 h-2 rounded-full ${colorClasses[status]}`}></div>
-                <span className="text-sm font-semibold text-white">{text}</span>
-            </div>
-            {tooltip && (
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-xs bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
-                    {tooltip}
-                </div>
-            )}
-        </div>
-    );
-};
-
-const DashboardHeader: React.FC<{
-    currentView: string;
-    isConnected: boolean;
-    isBotSimulating: boolean;
-}> = ({ currentView, isConnected, isBotSimulating }) => {
-    const { environment } = useAPI();
-    const title = currentView.charAt(0).toUpperCase() + currentView.slice(1);
-
-    const environmentDetails = {
-        testnet: { text: 'Testnet', status: 'positive' as const },
-        mainnet: { text: 'Mainnet', status: 'negative' as const }
-    };
-
-    const currentEnvDetails = environmentDetails[environment];
-    
-    return (
-        <div className="h-16 flex-shrink-0 bg-gray-800/30 border-b border-gray-700 flex items-center justify-between px-6">
-            <h2 className="text-xl font-bold text-white">{title}</h2>
-            <div className="flex items-center space-x-6">
-                 <StatusIndicator 
-                    label="Bot Simulation"
-                    status={isBotSimulating ? 'positive' : 'negative'}
-                    text={isBotSimulating ? 'Active' : 'Inactive'}
-                    tooltip="Start a simulation from the 'Strategy' tab."
-                />
-                 <StatusIndicator 
-                    label="Environment"
-                    status={isConnected ? currentEnvDetails.status : 'neutral'}
-                    text={isConnected ? currentEnvDetails.text : 'N/A'}
-                />
-                <StatusIndicator 
-                    label="Exchange"
-                    status={isConnected ? 'positive' : 'negative'}
-                    text={isConnected ? 'Connected' : 'Disconnected'}
-                />
             </div>
         </div>
     );
@@ -1698,9 +1680,9 @@ function AppContent() {
         setNotifications(prev => prev.filter(n => n.id !== id));
     };
 
-    const logActivity = (message: string, type: ActivityLogEntry['type']) => {
+    const logActivity = useCallback((message: string, type: ActivityLogEntry['type']) => {
         setActivityLog(prev => [...prev, { timestamp: new Date().toISOString(), message, type }]);
-    };
+    }, []);
     
     // Bot Deployment and Simulation Logic
     const handleStartSimulation = () => {
@@ -1749,7 +1731,7 @@ function AppContent() {
                 clearInterval(botActivityInterval.current);
             }
         };
-    }, [isBotSimulating]);
+    }, [isBotSimulating, logActivity]);
 
 
     const refreshAllData = useCallback(async () => {
@@ -1788,7 +1770,7 @@ function AppContent() {
         }, 15000); // Refresh every 15 seconds
 
         return () => clearInterval(intervalId);
-    }, [isConnected, apiKey, apiSecret, environment, refreshAllData]);
+    }, [isConnected, apiKey, apiSecret, environment, refreshAllData, logActivity]);
     
     const handleConnectAttempt = async (apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet') => {
         setPendingConnection({ apiKey, apiSecret, environment });

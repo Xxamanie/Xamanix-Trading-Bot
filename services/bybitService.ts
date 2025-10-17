@@ -1,3 +1,4 @@
+
 import type { Asset, Position, ClosedTrade } from '../types';
 
 // This service provides a live connection to the Bybit v5 API.
@@ -122,17 +123,27 @@ export const verifyAndFetchBalances = async (apiKey: string, apiSecret: string, 
 export const fetchPositions = async (apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet'): Promise<Position[]> => {
     const result = await makeRequest('GET', '/v5/position/list', { category: 'linear', settleCoin: 'USDT' }, apiKey, apiSecret, environment);
     
-    return result.list.map((pos: any): Position => ({
-        id: `${pos.symbol}-${pos.side}`,
-        asset: pos.symbol.replace('USDT', '/USD'),
-        direction: pos.side === 'Buy' ? 'LONG' : 'SHORT',
-        entryPrice: parseFloat(pos.avgPrice),
-        size: parseFloat(pos.size),
-        pnl: parseFloat(pos.unrealisedPnl),
-        pnlPercent: parseFloat(pos.unrealisedPnl) / (parseFloat(pos.avgPrice) * parseFloat(pos.size) / pos.leverage) * 100, // Approximate PnL %
-        openTimestamp: new Date(parseInt(pos.createdTime)).toISOString(),
-        seen: false, // Default for new positions
-    }));
+    return result.list.map((pos: any): Position => {
+        const leverage = parseFloat(pos.leverage);
+        const entryPrice = parseFloat(pos.avgPrice);
+        const size = parseFloat(pos.size);
+        const unrealisedPnl = parseFloat(pos.unrealisedPnl);
+
+        const positionValue = entryPrice * size;
+        const margin = leverage > 0 ? positionValue / leverage : 0;
+        
+        return {
+            id: `${pos.symbol}-${pos.side}`,
+            asset: pos.symbol.replace('USDT', '/USD'),
+            direction: pos.side === 'Buy' ? 'LONG' : 'SHORT',
+            entryPrice: entryPrice,
+            size: size,
+            pnl: unrealisedPnl,
+            pnlPercent: margin > 0 ? (unrealisedPnl / margin) * 100 : 0,
+            openTimestamp: new Date(parseInt(pos.createdTime)).toISOString(),
+            seen: false, // Default for new positions
+        };
+    });
 };
 
 const convertSymbolToBybit = (appSymbol: string): string => {

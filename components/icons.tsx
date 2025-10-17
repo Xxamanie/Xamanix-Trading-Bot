@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 
 export const DashboardIcon = (): React.ReactElement => (
@@ -93,6 +94,12 @@ export const LoadingIcon = ({ className = "h-5 w-5 animate-spin" }: { className?
 export const PlayIcon = ({ className = "h-4 w-4" }: { className?: string }): React.ReactElement => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="currentColor" viewBox="0 0 24 24">
         <path d="M8 5v14l11-7z" />
+    </svg>
+);
+
+export const StopIcon = ({ className = "h-5 w-5" }: { className?: string }): React.ReactElement => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="currentColor" viewBox="0 0 24 24">
+        <path d="M6 6h12v12H6z" />
     </svg>
 );
 
