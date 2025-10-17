@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification, Order } from './types';
-import { MOCK_PORTFOLIO_HISTORY, MOCK_TRADE_VIEW_DATA, DEFAULT_SCRIPT } from './constants';
+import { MOCK_PORTFOLIO_HISTORY, MOCK_ASSETS, MOCK_POSITIONS, MOCK_TRADE_VIEW_DATA, DEFAULT_SCRIPT } from './constants';
 import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, PlayIcon, StopIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon, ExclamationTriangleIcon, BellIcon, ExternalLinkIcon, ShieldCheckIcon, LinkIcon } from './components/icons';
 import RecommendationsPanel from './components/RecommendationsPanel';
 import BacktestResults from './components/BacktestResults';
@@ -23,7 +23,10 @@ export interface ActivityLogEntry {
   type: 'info' | 'profit' | 'loss' | 'trade';
 }
 
-// Reusable UI Components
+// ============================================================================
+// REUSABLE UI COMPONENTS
+// ============================================================================
+
 const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
   <div className={`bg-gray-800/50 border border-gray-700 rounded-xl shadow-lg ${className}`}>
     {children}
@@ -101,6 +104,10 @@ const ToggleSwitch: React.FC<{
   </div>
 );
 
+// ============================================================================
+// VIEW SUB-COMPONENTS
+// ============================================================================
+
 interface AIStatusPanelProps {
     realizedPnl: number;
     activityLog: ActivityLogEntry[];
@@ -174,14 +181,92 @@ const AIStatusPanel: React.FC<AIStatusPanelProps> = ({ realizedPnl, activityLog,
     );
 };
 
-// View Components
+const PillButton: React.FC<{ onClick: () => void, isActive: boolean, children: React.ReactNode }> = ({ onClick, isActive, children }) => (
+    <button onClick={onClick} className={`px-3 py-1 text-sm font-semibold rounded-full transition-colors ${isActive ? 'bg-cyan-500 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+        {children}
+    </button>
+);
+
+const OrderBook: React.FC<{ bids: Order[]; asks: Order[]; }> = ({ bids, asks }) => {
+    const allTotals = [...bids.map(o => o.quantity), ...asks.map(o => o.quantity)];
+    const maxTotal = allTotals.length > 0 ? Math.max(...allTotals) : 0;
+
+    const OrderColumn: React.FC<{ orders: Order[]; type: 'bid' | 'ask'; }> = ({ orders, type }) => (
+        <div>
+            <div className="flex justify-between text-xs text-gray-500 px-2 mb-1">
+                <span>Price (USD)</span>
+                <span>Quantity</span>
+            </div>
+            <div className="space-y-0.5">
+                {orders.map((order, i) => (
+                    <div key={i} className="relative flex justify-between text-xs font-mono px-2 py-0.5 hover:bg-gray-700/50 cursor-pointer">
+                        <div 
+                            className={`absolute top-0 bottom-0 ${type === 'bid' ? 'right-0 bg-green-500/15' : 'left-0 bg-red-500/15'}`}
+                            style={{ width: `${maxTotal > 0 ? (order.quantity / maxTotal) * 100 : 0}%` }}
+                        />
+                        <span className={type === 'bid' ? 'text-green-400' : 'text-red-400'}>{order.price.toFixed(2)}</span>
+                        <span className="text-gray-300">{order.quantity.toFixed(4)}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+    
+    const sortedAsks = [...asks].sort((a, b) => b.price - a.price);
+    const sortedBids = [...bids].sort((a, b) => b.price - a.price);
+
+    return (
+        <Card className="p-0 flex-grow flex flex-col min-h-0">
+            <h3 className="text-md font-semibold text-white p-3 border-b border-gray-700 flex-shrink-0">Order Book</h3>
+            <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-4 p-2 overflow-y-auto">
+                <OrderColumn orders={sortedBids.slice(0, 15)} type="bid" />
+                <OrderColumn orders={sortedAsks.slice(0, 15)} type="ask" />
+            </div>
+        </Card>
+    );
+};
+
+const NotificationPopup: React.FC<{ notification: Notification; onDismiss: (id: number) => void; }> = ({ notification, onDismiss }) => {
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            onDismiss(notification.id);
+        }, 5000);
+        return () => clearTimeout(timer);
+    }, [notification, onDismiss]);
+
+    const colors = {
+        success: 'bg-green-500 border-green-600',
+        error: 'bg-red-500 border-red-600',
+        info: 'bg-cyan-500 border-cyan-600',
+    };
+
+    return (
+        <div className={`fixed bottom-5 right-5 w-full max-w-sm rounded-lg shadow-lg text-white ${colors[notification.type]} border-l-4`}>
+            <div className="p-4 flex items-center">
+                <div className="flex-shrink-0">{notification.icon}</div>
+                <div className="ml-3 flex-1">
+                    <p className="text-sm font-medium">{notification.message}</p>
+                </div>
+                <div className="ml-4 flex-shrink-0">
+                    <button onClick={() => onDismiss(notification.id)} className="inline-flex rounded-md p-1.5 hover:bg-black/20 focus:outline-none focus:ring-2 focus:ring-white">
+                        <CloseIcon className="h-5 w-5" />
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
+// FULL-PAGE VIEW COMPONENTS
+// ============================================================================
+
 interface DashboardViewProps {
     history: PortfolioHistory;
     positions: Position[];
     realizedPnl: number;
     assets: Asset[];
     onManualClosePosition: (position: Position) => void;
-    // Props for AIStatusPanel
     activityLog: ActivityLogEntry[];
     onGetSuggestion: () => Promise<void>;
     aiSuggestion: { suggestion: string; isLoading: boolean; error: string | null; };
@@ -194,9 +279,6 @@ const DashboardView: React.FC<DashboardViewProps> = ({ history, positions, reali
     const totalAssetsValue = assets.find(a => a.name === 'USDT')?.usdValue ?? 0;
     const openPnl = positions.reduce((acc, pos) => acc + pos.pnl, 0);
     const totalValue = totalAssetsValue + openPnl;
-    const yesterdaysValue = history.equity[history.equity.length - 2] ?? totalValue;
-    const todaysChange = totalValue - yesterdaysValue;
-    const todaysChangePct = yesterdaysValue !== 0 ? (todaysChange / yesterdaysValue) * 100 : 0;
 
     useEffect(() => {
         if (!chartRef.current) return;
@@ -235,7 +317,6 @@ const DashboardView: React.FC<DashboardViewProps> = ({ history, positions, reali
 
     return (
         <div className="p-6 flex gap-6 h-full">
-            {/* Left Column */}
             <div className="w-2/3 flex flex-col gap-6">
                 <Card className="p-6">
                     <div className="flex justify-between items-start">
@@ -286,8 +367,6 @@ const DashboardView: React.FC<DashboardViewProps> = ({ history, positions, reali
                     </div>
                 </Card>
             </div>
-
-            {/* Right Column */}
             <div className="w-1/3 flex flex-col gap-6">
                 <Card className="p-6 flex flex-col justify-center flex-shrink-0">
                     <p className="text-sm text-gray-400">Total Realized PnL</p>
@@ -304,98 +383,38 @@ const DashboardView: React.FC<DashboardViewProps> = ({ history, positions, reali
     );
 };
 
-
-const PillButton: React.FC<{ onClick: () => void, isActive: boolean, children: React.ReactNode }> = ({ onClick, isActive, children }) => (
-    <button onClick={onClick} className={`px-3 py-1 text-sm font-semibold rounded-full transition-colors ${isActive ? 'bg-cyan-500 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
-        {children}
-    </button>
-);
-
-const OrderBook: React.FC<{ bids: Order[]; asks: Order[]; }> = ({ bids, asks }) => {
-    const allTotals = [...bids.map(o => o.total), ...asks.map(o => o.total)];
-    const maxTotal = allTotals.length > 0 ? Math.max(...allTotals) : 0;
-
-    const OrderColumn: React.FC<{ orders: Order[]; type: 'bid' | 'ask'; }> = ({ orders, type }) => (
-        <div>
-            <div className="flex justify-between text-xs text-gray-500 px-2 mb-1">
-                <span>Price (USD)</span>
-                <span>Quantity</span>
-            </div>
-            <div className="space-y-0.5">
-                {orders.map((order, i) => (
-                    <div key={i} className="relative flex justify-between text-xs font-mono px-2 py-0.5 hover:bg-gray-700/50 cursor-pointer">
-                        <div 
-                            className={`absolute top-0 bottom-0 ${type === 'bid' ? 'right-0 bg-green-500/15' : 'left-0 bg-red-500/15'}`}
-                            style={{ width: `${maxTotal > 0 ? (order.total / maxTotal) * 100 : 0}%` }}
-                        />
-                        <span className={type === 'bid' ? 'text-green-400' : 'text-red-400'}>{order.price.toFixed(2)}</span>
-                        <span className="text-gray-300">{order.quantity.toFixed(4)}</span>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-    
-    const sortedAsks = [...asks].sort((a, b) => a.price - b.price);
-    const sortedBids = [...bids].sort((a, b) => b.price - a.price);
-
-    return (
-        <Card className="p-0 flex-grow flex flex-col min-h-0">
-            <h3 className="text-md font-semibold text-white p-3 border-b border-gray-700 flex-shrink-0">Order Book</h3>
-            <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-4 p-2 overflow-y-auto">
-                <OrderColumn orders={sortedBids.slice(0, 15)} type="bid" />
-                <OrderColumn orders={sortedAsks.slice(0, 15)} type="ask" />
-            </div>
-        </Card>
-    );
-};
-
 interface TradeViewProps {
   data: TradeViewData;
   onExecuteTrade: (details: { asset: string, direction: 'LONG' | 'SHORT', amountUSD: number, orderType: 'Market' | 'Limit', limitPrice?: string }) => void;
   isConnected: boolean;
 }
 
-const TradeView: React.FC<TradeViewProps> = (props) => {
-    const { data, onExecuteTrade, isConnected } = props;
+const TradeView: React.FC<TradeViewProps> = ({ data, onExecuteTrade, isConnected }) => {
     const { tradeMethod } = useAPI();
     const chartRef = useRef<HTMLCanvasElement | null>(null);
     const chartInstance = useRef<any | null>(null);
     const [market, setMarket] = useState(Object.keys(data)[0]);
     const [orderBook, setOrderBook] = useState<{bids: Order[], asks: Order[]}>({ bids: [], asks: [] });
-
     const candleFrequencies = ['5m', '15m', '1h', '4h'];
     const [candleFrequency, setCandleFrequency] = useState(candleFrequencies[1]);
-
     const marketData = data[market]?.[candleFrequency];
-
-    const [stopLoss, setStopLoss] = useState('2.0');
     const [tradeAmount, setTradeAmount] = useState('100');
     const [limitPrice, setLimitPrice] = useState('');
     const [isTrading, setIsTrading] = useState(false);
 
     useEffect(() => {
         if (!chartRef.current || !marketData) return;
-
         const ctx = chartRef.current.getContext('2d');
         if (!ctx) return;
+        if (chartInstance.current) chartInstance.current.destroy();
 
-        if (chartInstance.current) {
-            chartInstance.current.destroy();
-        }
-
-        const movingAveragePeriod = 20; // Define period for Exponential Moving Average
-
+        const movingAveragePeriod = 20;
         const calculateEMA = (data: number[], period: number): (number | null)[] => {
             if (data.length < period) return Array(data.length).fill(null);
-        
             const multiplier = 2 / (period + 1);
             const ema: (number | null)[] = Array(period - 1).fill(null);
-            
-            // Start with an SMA for the first value
             let previousEma = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
             ema.push(previousEma);
-        
             for (let i = period; i < data.length; i++) {
                 const newEma = (data[i] - previousEma) * multiplier + previousEma;
                 ema.push(newEma);
@@ -403,7 +422,6 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
             }
             return ema;
         };
-        
         const generateOrderBookData = (currentPrice: number, market: string): { bids: Order[]; asks: Order[] } => {
             const bids: Order[] = [];
             const asks: Order[] = [];
@@ -412,12 +430,10 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
             if (market.includes('ETH')) priceStep = 0.25;
             if (market.includes('SOL')) priceStep = 0.05;
             if (market.includes('NGN')) priceStep = 0.00001;
-    
             for (let i = 1; i <= levels; i++) {
                 const askPrice = currentPrice + (i * priceStep * (1 + (Math.random() - 0.5) * 0.1));
                 const askQuantity = Math.random() * (market.includes('BTC') ? 0.5 : 5);
                 asks.push({ price: askPrice, quantity: askQuantity, total: askPrice * askQuantity });
-    
                 const bidPrice = currentPrice - (i * priceStep * (1 + (Math.random() - 0.5) * 0.1));
                 const bidQuantity = Math.random() * (market.includes('BTC') ? 0.5 : 5);
                 bids.push({ price: bidPrice, quantity: bidQuantity, total: bidPrice * bidQuantity });
@@ -427,1315 +443,346 @@ const TradeView: React.FC<TradeViewProps> = (props) => {
 
         const initialPrices = [...marketData.prices];
         const initialEmaData = calculateEMA(initialPrices, movingAveragePeriod);
-        
         if (initialPrices.length > 0) {
             const currentPrice = initialPrices[initialPrices.length - 1];
             setOrderBook(generateOrderBookData(currentPrice, market));
-            setLimitPrice(currentPrice.toFixed(2));
+            if (!limitPrice) setLimitPrice(currentPrice.toFixed(2));
         }
 
-
         chartInstance.current = new Chart(ctx, {
+            type: 'line',
             data: {
-                labels: marketData.timestamps.map(t => new Date(t).toLocaleTimeString()),
-                datasets: [{
-                    type: 'line',
-                    label: `${market} Price (${candleFrequency})`,
-                    data: initialPrices, 
-                    borderColor: '#22d3ee',
-                    borderWidth: 2,
-                    pointRadius: 0,
-                    tension: 0.1,
-                    order: 1
-                }, {
-                    type: 'line',
-                    label: `EMA (${movingAveragePeriod})`,
-                    data: initialEmaData,
-                    borderColor: '#ef4444', // Red color
-                    borderWidth: 1.5,
-                    pointRadius: 0,
-                    tension: 0.1,
-                    order: 1
-                }, {
-                    type: 'bubble',
-                    label: 'Buy Trades',
-                    data: [],
-                    backgroundColor: 'rgba(16, 185, 129, 0.9)',
-                    borderColor: 'rgba(255, 255, 255, 1)',
-                    borderWidth: 1.5,
-                    radius: 5,
-                    order: 0,
-                }, {
-                    type: 'bubble',
-                    label: 'Sell Trades',
-                    data: [],
-                    backgroundColor: 'rgba(220, 38, 38, 0.9)',
-                    borderColor: 'rgba(255, 255, 255, 1)',
-                    borderWidth: 1.5,
-                    radius: 5,
-                    order: 0,
-                }]
+                labels: marketData.timestamps.map(t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
+                datasets: [
+                    { label: 'Price', data: initialPrices, borderColor: 'rgb(34, 211, 238)', borderWidth: 2, pointRadius: 0, tension: 0.1 },
+                    { label: `EMA(${movingAveragePeriod})`, data: initialEmaData, borderColor: 'rgb(250, 204, 21)', borderWidth: 1.5, pointRadius: 0, borderDash: [5, 5], tension: 0.1 },
+                ]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { 
-                    legend: { 
-                        labels: { 
-                            color: '#d1d5db',
-                            filter: (item) => !item.text.includes('Trades'),
-                        } 
-                    } 
-                },
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: true, position: 'top', labels: { color: '#d1d5db' } } },
                 scales: {
-                    x: { ticks: { color: '#9ca3af' }, grid: { color: 'rgba(255, 255, 255, 0.1)' } },
-                    y: { ticks: { color: '#9ca3af', callback: (value: any) => `$${Number(value).toLocaleString()}` }, grid: { color: 'rgba(255, 255, 255, 0.1)' } }
+                    x: { ticks: { color: '#9ca3af', maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }, grid: { color: 'rgba(255, 255, 255, 0.1)' } },
+                    y: { position: 'right', ticks: { color: '#9ca3af' }, grid: { color: 'rgba(255, 255, 255, 0.1)' } }
                 }
             }
         });
-
-        const intervalId = setInterval(() => {
-            if (!chartInstance.current) return;
-            
-            const datasets = chartInstance.current.data.datasets;
-            const priceDataset = datasets[0];
-            const maDataset = datasets[1];
-            const buyDataset = datasets[2];
-            const sellDataset = datasets[3];
-            
-            const lastPrice = priceDataset.data[priceDataset.data.length - 1];
-
-            if (typeof lastPrice !== 'number' || !isFinite(lastPrice)) {
-                // If last price is invalid, skip this update to prevent chart errors
-                return;
-            }
-
-            let volatility = 0.0001;
-            if (market.includes('SOL')) volatility = 0.0005;
-            else if (market.includes('ETH')) volatility = 0.0002;
-            
-            const newPrice = lastPrice * (1 + (Math.random() - 0.5) * volatility);
-            const newTimestamp = new Date().toLocaleTimeString();
-            
-            setOrderBook(generateOrderBookData(newPrice, market));
-
-            // Update labels
-            chartInstance.current.data.labels.push(newTimestamp);
-            chartInstance.current.data.labels.shift();
-
-            // Update price data
-            priceDataset.data.push(newPrice);
-            priceDataset.data.shift();
-            
-            // Update EMA data
-            const lastEma = maDataset.data[maDataset.data.length - 1];
-            let newEmaValue = null;
-            if (lastEma !== null) {
-                const multiplier = 2 / (movingAveragePeriod + 1);
-                newEmaValue = (newPrice - lastEma) * multiplier + lastEma;
-            } else {
-                // Fallback: if EMA somehow becomes null, re-seed with SMA
-                const currentPrices = priceDataset.data.filter((p: any) => p !== null);
-                if (currentPrices.length >= movingAveragePeriod) {
-                    const sum = currentPrices.slice(-movingAveragePeriod).reduce((acc: number, val: number) => acc + val, 0);
-                    newEmaValue = sum / movingAveragePeriod;
-                }
-            }
-            maDataset.data.push(newEmaValue);
-            maDataset.data.shift();
-
-            // Update trade marker positions
-            buyDataset.data.forEach((p: {x:number}) => { if(p) p.x-- });
-            sellDataset.data.forEach((p: {x:number}) => { if(p) p.x-- });
-            buyDataset.data = buyDataset.data.filter((p: {x:number}) => p && p.x >= 0);
-            sellDataset.data = sellDataset.data.filter((p: {x:number}) => p && p.x >= 0);
-
-            chartInstance.current.update('quiet');
-        }, 1500);
-
-        return () => {
-            clearInterval(intervalId);
-            if (chartInstance.current) {
-                chartInstance.current.destroy();
-                chartInstance.current = null;
-            }
-        };
-
-    }, [marketData, market, candleFrequency]);
+        return () => chartInstance.current?.destroy();
+    }, [marketData, market, limitPrice]);
     
     const handleTrade = async (direction: 'LONG' | 'SHORT') => {
-        const amount = parseFloat(tradeAmount);
-        if (isNaN(amount) || amount <= 0) {
-            console.error("Invalid trade amount");
-            return;
-        }
-        if (tradeMethod === 'Limit' && (isNaN(parseFloat(limitPrice)) || parseFloat(limitPrice) <= 0)) {
-            console.error("Invalid limit price");
-            return;
-        }
-        
         setIsTrading(true);
-
-        if (chartInstance.current) {
-            const priceDataset = chartInstance.current.data.datasets[0];
-            const buyDataset = chartInstance.current.data.datasets[2];
-            const sellDataset = chartInstance.current.data.datasets[3];
-            
-            const tradeIndex = priceDataset.data.length - 1;
-            const tradePrice = priceDataset.data[tradeIndex];
-
-            const newPoint = { x: tradeIndex, y: tradePrice, r: 6 };
-            
-            if (direction === 'LONG') {
-                buyDataset.data.push(newPoint);
-            } else {
-                sellDataset.data.push(newPoint);
-            }
-            chartInstance.current.update('quiet');
-        }
-
         try {
             await onExecuteTrade({
                 asset: market,
-                direction: direction,
-                amountUSD: amount,
+                direction,
+                amountUSD: parseFloat(tradeAmount),
                 orderType: tradeMethod,
-                limitPrice: tradeMethod === 'Limit' ? limitPrice : undefined
+                limitPrice: tradeMethod === 'Limit' ? limitPrice : undefined,
             });
         } finally {
-             setIsTrading(false);
+            setIsTrading(false);
         }
     };
 
-
     return (
-        <div className="p-6 h-full flex gap-6">
+        <div className="p-6 flex gap-6 h-full">
             <div className="w-2/3 flex flex-col gap-6">
-                 <div className="flex-shrink-0 flex justify-between items-center">
-                    <select onChange={(e) => setMarket(e.target.value)} value={market} className="bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                        {Object.keys(data).map(m => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                    <div className="flex items-center space-x-2 bg-gray-800 p-1 rounded-full">
-                        {candleFrequencies.map(freq => (
-                            <PillButton key={freq} onClick={() => setCandleFrequency(freq)} isActive={candleFrequency === freq}>
-                                {freq}
-                            </PillButton>
-                        ))}
+                <Card className="flex-grow flex flex-col min-h-0">
+                    <div className="p-4 border-b border-gray-700 flex justify-between items-center flex-shrink-0">
+                        <div className="flex items-center space-x-2">
+                           {Object.keys(data).map(m => <PillButton key={m} onClick={() => setMarket(m)} isActive={market === m}>{m}</PillButton>)}
+                        </div>
+                        <div className="flex items-center space-x-1 bg-gray-900/50 rounded-md p-1">
+                           {candleFrequencies.map(f => <button key={f} onClick={() => setCandleFrequency(f)} className={`px-2 py-1 text-xs rounded ${candleFrequency === f ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-600'}`}>{f}</button>)}
+                        </div>
                     </div>
-                </div>
-                <div className="flex-grow min-h-0">
-                    <Card className="h-full p-2">
-                        <canvas ref={chartRef}></canvas>
-                    </Card>
-                </div>
+                    <div className="flex-grow p-4 relative"><canvas ref={chartRef}></canvas></div>
+                </Card>
             </div>
             <div className="w-1/3 flex flex-col gap-6">
-                <Card className="p-4 flex-shrink-0">
-                    <h3 className="text-lg font-semibold text-white mb-4">Manual Trade</h3>
+                <Card className="p-4 space-y-4">
+                    <h3 className="text-lg font-semibold text-white">Manual Trade</h3>
+                    <Input label="Trade Amount" type="number" value={tradeAmount} onChange={e => setTradeAmount(e.target.value)} leadingAddon="$" disabled={!isConnected || isTrading} />
+                    {tradeMethod === 'Limit' && (
+                        <Input label="Limit Price" type="number" value={limitPrice} onChange={e => setLimitPrice(e.target.value)} leadingAddon="$" disabled={!isConnected || isTrading} />
+                    )}
                     <div className="grid grid-cols-2 gap-4">
-                        <Input label="Trade Amount" value={tradeAmount} onChange={(e) => setTradeAmount(e.target.value)} leadingAddon="$" />
-                         {tradeMethod === 'Limit' ? (
-                            <Input label="Limit Price" value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} leadingAddon="$" />
-                        ) : (
-                            <Input label="Stop Loss (%)" value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} />
-                        )}
+                        <Button onClick={() => handleTrade('LONG')} disabled={!isConnected || isTrading} className="!py-3 !bg-green-600 hover:!bg-green-700 disabled:!bg-green-600/50 flex items-center justify-center">
+                            {isTrading ? <LoadingIcon /> : <ArrowTrendingUpIcon className="w-5 h-5"/>}<span className="ml-2">Long</span>
+                        </Button>
+                        <Button onClick={() => handleTrade('SHORT')} disabled={!isConnected || isTrading} className="!py-3 !bg-red-600 hover:!bg-red-700 disabled:!bg-red-600/50 flex items-center justify-center">
+                            {isTrading ? <LoadingIcon /> : <ArrowTrendingUpIcon className="w-5 h-5 transform rotate-180"/>}<span className="ml-2">Short</span>
+                        </Button>
                     </div>
-                    <div className="mt-4 pt-4 border-t border-gray-700/50 flex justify-between items-center">
-                            <div className="relative group flex space-x-3 w-full">
-                            <Button 
-                                onClick={() => handleTrade('LONG')} 
-                                variant="primary" 
-                                className="!bg-green-600 !hover:bg-green-700 !focus:ring-green-500 px-6 py-2.5 w-full"
-                                disabled={isTrading || !isConnected}
-                            >
-                                {isTrading ? <LoadingIcon /> : 'Buy / Long'}
-                            </Button>
-                            <Button 
-                                onClick={() => handleTrade('SHORT')} 
-                                variant="primary" 
-                                className="!bg-red-600 !hover:bg-red-700 !focus:ring-red-500 px-6 py-2.5 w-full"
-                                disabled={isTrading || !isConnected}
-                            >
-                               {isTrading ? <LoadingIcon /> : 'Sell / Short'}
-                            </Button>
-                                {!isConnected && (
-                                <div className="absolute bottom-full mb-2 w-full text-center">
-                                <span className="bg-gray-700 text-white text-xs rounded py-1 px-2">
-                                        Connect to exchange to trade.
-                                </span>
-                                </div>
-                            )}
-                        </div>
-                    </div>
+                    {!isConnected && <p className="text-xs text-center text-yellow-400">Connect to an exchange in Settings to trade.</p>}
                 </Card>
-
-                <div className="flex-grow min-h-0">
-                     <OrderBook bids={orderBook.bids} asks={orderBook.asks} />
-                </div>
+                <OrderBook bids={orderBook.bids} asks={orderBook.asks} />
             </div>
         </div>
     );
 };
 
-const WalletView: React.FC<{ assets: Asset[], setView: (view: string) => void }> = ({ assets, setView }) => {
-    const { isConnected } = useAPI();
-
-    if (!isConnected) {
-        return (
-            <div className="p-6 flex items-center justify-center h-full text-center">
-                <Card className="p-8 max-w-md">
-                    <WalletIcon />
-                    <h3 className="text-xl font-bold text-white mt-4">Connect Your Exchange</h3>
-                    <p className="text-gray-400 mt-2 mb-6">
-                        To view your live wallet balances, please connect your Bybit API keys in the Settings page.
-                    </p>
-                    <Button variant="primary" onClick={() => setView('settings')}>
-                        Go to Settings
-                    </Button>
-                </Card>
-            </div>
-        );
-    }
-
-    return (
-        <div className="p-6">
-            <Card>
-                <h3 className="text-lg font-semibold text-white p-4 border-b border-gray-700">Wallet Balances</h3>
-                 {assets.length === 0 ? (
-                    <div className="text-center text-gray-500 py-12">
-                        <LoadingIcon className="w-8 h-8 mx-auto" />
-                        <p className="mt-2">Loading wallet balances...</p>
-                    </div>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="text-xs text-gray-400 uppercase bg-gray-800">
-                                <tr>
-                                    <th className="px-6 py-3">Asset</th>
-                                    <th className="px-6 py-3">Total</th>
-                                    <th className="px-6 py-3">Available</th>
-                                    <th className="px-6 py-3">In Orders</th>
-                                    <th className="px-6 py-3">USD Value</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {assets.map(asset => (
-                                    <tr key={asset.name} className="border-b border-gray-700 hover:bg-gray-800/70 transition-colors">
-                                        <td className="px-6 py-4 font-semibold text-white">{asset.name}</td>
-                                        <td className="px-6 py-4">{asset.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}</td>
-                                        <td className="px-6 py-4">{asset.available.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}</td>
-                                        <td className="px-6 py-4">{asset.inOrders.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}</td>
-                                        <td className="px-6 py-4">${asset.usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </Card>
-        </div>
-    );
-};
-
-
-const SettingsView: React.FC<{ onConnectAttempt: (apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet') => Promise<void>, onDisconnect: () => void, addNotification: (message: string, type: Notification['type']) => void }> = ({ onConnectAttempt, onDisconnect, addNotification }) => {
-    const { apiKey, setApiKey, apiSecret, setApiSecret, isConnected, environment, setEnvironment, tradeMethod, setTradeMethod } = useAPI();
-    const [isVerifying, setIsVerifying] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-
-    const handleVerifyAndConnect = async () => {
-        setIsVerifying(true);
-        setError(null);
-        try {
-            await onConnectAttempt(apiKey, apiSecret, environment);
-        } catch (e: any) {
-            const errorMessage = e.message || "An unknown error occurred.";
-            setError(errorMessage);
-            addNotification(errorMessage, 'error');
-        } finally {
-            setIsVerifying(false);
-        }
-    };
-    
-    const handleDisconnect = () => {
-        setApiKey('');
-        setApiSecret('');
-        onDisconnect();
-        addNotification("Disconnected from exchange.", 'info');
-    };
-
-    return (
-        <div className="p-6 space-y-8 max-w-2xl mx-auto">
-            <Card className="p-6">
-                <h3 className="text-lg font-semibold text-white mb-4">API Configuration</h3>
-                <div className="space-y-4 mb-6">
-                    <label className="block text-sm font-medium text-gray-400 mb-2">Environment</label>
-                    <div className="flex space-x-4">
-                        <label className="flex items-center">
-                            <input type="radio" name="environment" value="testnet" checked={environment === 'testnet'} onChange={() => setEnvironment('testnet')} className="h-4 w-4 text-cyan-600 bg-gray-700 border-gray-600 focus:ring-cyan-500" disabled={isConnected} />
-                            <span className="ml-2 text-gray-300">Testnet (Paper Trading)</span>
-                        </label>
-                        <label className="flex items-center">
-                            <input type="radio" name="environment" value="mainnet" checked={environment === 'mainnet'} onChange={() => setEnvironment('mainnet')} className="h-4 w-4 text-cyan-600 bg-gray-700 border-gray-600 focus:ring-cyan-500" disabled={isConnected} />
-                            <span className="ml-2 text-gray-300">Mainnet (Live Trading)</span>
-                        </label>
-                    </div>
-                </div>
-
-                {environment === 'testnet' && (
-                    <div className="bg-yellow-900/30 border border-yellow-700/50 rounded-lg p-4 mb-6">
-                        <div className="flex items-start">
-                            <ExclamationTriangleIcon className="h-5 w-5 text-yellow-400 mr-3 mt-0.5 flex-shrink-0" />
-                            <div>
-                                <h4 className="font-semibold text-yellow-300">You are in Testnet Mode</h4>
-                                <p className="text-sm text-yellow-300/80 mt-1">
-                                    Testnet uses live market data with play money. This is a critical step for testing strategies without financial risk. Ensure you are using API keys generated from your exchange's Testnet platform.
-                                </p>
-                                <a href="https://testnet.bybit.com/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-sm font-semibold text-cyan-400 hover:text-cyan-300 mt-2">
-                                    Get Bybit Testnet Keys <ExternalLinkIcon className="ml-1.5" />
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                )}
-                 {environment === 'mainnet' && (
-                    <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-4 mb-6">
-                        <div className="flex items-start">
-                            <ExclamationTriangleIcon className="h-5 w-5 text-red-400 mr-3 mt-0.5 flex-shrink-0" />
-                            <div>
-                                <h4 className="font-semibold text-red-300">You are in Mainnet Mode</h4>
-                                <p className="text-sm text-red-300/80 mt-1">
-                                    <strong>EXTREME CAUTION:</strong> You are about to connect to a live trading environment. All actions will be performed with REAL funds from your exchange account. Double-check your strategy and settings before proceeding. The creators of this application are not liable for any financial losses.
-                                </p>
-                                <a href="https://www.bybit.com/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-sm font-semibold text-cyan-400 hover:text-cyan-300 mt-2">
-                                    Go to Bybit Mainnet <ExternalLinkIcon className="ml-1.5" />
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                )}
-                
-                <p className="text-sm text-gray-400 mb-6">
-                    Enter your {environment.charAt(0).toUpperCase() + environment.slice(1)} API key and secret. Your keys are stored locally and never exposed.
-                </p>
-                <div className="space-y-4">
-                    <Input label="API Key" value={apiKey} onChange={e => setApiKey(e.target.value)} disabled={isConnected} placeholder={`Enter ${environment.charAt(0).toUpperCase() + environment.slice(1)} API Key`} />
-                    <Input label="API Secret" type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)} disabled={isConnected} placeholder={`Enter ${environment.charAt(0).toUpperCase() + environment.slice(1)} API Secret`}/>
-                    {error && <p className="text-sm text-red-400">{error}</p>}
-                    <div className="pt-2 flex items-center justify-between">
-                        {!isConnected ? (
-                            <Button onClick={handleVerifyAndConnect} variant="primary" disabled={isVerifying || !apiKey || !apiSecret}>
-                                <div className="flex items-center">
-                                    {isVerifying ? <LoadingIcon className="w-5 h-5 mr-2" /> : <LinkIcon className="w-5 h-5 mr-2" />}
-                                    {isVerifying ? 'Verifying...' : 'Connect & Verify'}
-                                </div>
-                            </Button>
-                        ) : (
-                             <div className="flex items-center space-x-4">
-                                <div className="flex items-center text-green-400"><CheckCircleIcon className="w-5 h-5 mr-2" /> Connected to {environment}</div>
-                                <Button onClick={handleDisconnect} variant="secondary">Disconnect</Button>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </Card>
-             <Card className="p-6">
-                <h3 className="text-lg font-semibold text-white mb-4">Trade Settings</h3>
-                <div className="space-y-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-2">Default Order Type</label>
-                        <div className="flex space-x-2 bg-gray-700 p-1 rounded-lg">
-                            <button
-                                onClick={() => setTradeMethod('Market')}
-                                className={`w-1/2 py-2 rounded-md text-sm font-semibold transition-colors ${tradeMethod === 'Market' ? 'bg-cyan-500 text-white' : 'text-gray-300 hover:bg-gray-600'}`}
-                            >
-                                Market
-                            </button>
-                            <button
-                                onClick={() => setTradeMethod('Limit')}
-                                className={`w-1/2 py-2 rounded-md text-sm font-semibold transition-colors ${tradeMethod === 'Limit' ? 'bg-cyan-500 text-white' : 'text-gray-300 hover:bg-gray-600'}`}
-                            >
-                                Limit
-                            </button>
-                        </div>
-                        <p className="text-xs text-gray-500 mt-2">
-                            {tradeMethod === 'Market'
-                                ? 'Market orders execute immediately at the best available price.'
-                                : 'Limit orders execute only at your specified price or better.'
-                            }
-                        </p>
-                    </div>
-                </div>
-            </Card>
-             <Card className="p-6">
-                <h3 className="text-lg font-semibold text-white mb-4">Bot Settings</h3>
-                 <div className="space-y-4">
-                     <div className="flex justify-between items-center">
-                         <p className="text-gray-300">Maximum Concurrent Trades</p>
-                         <input type="number" defaultValue={5} className="w-24 bg-gray-700 border border-gray-600 rounded-md px-3 py-1 text-white text-center" />
-                     </div>
-                     <div className="flex justify-between items-center">
-                         <p className="text-gray-300">Daily Loss Limit (%)</p>
-                         <input type="number" defaultValue={5} className="w-24 bg-gray-700 border border-gray-600 rounded-md px-3 py-1 text-white text-center" />
-                     </div>
-                 </div>
-            </Card>
-        </div>
-    );
-};
-
-const StrategyView: React.FC<{
-    addNotification: (message: string, type: Notification['type']) => void;
+interface StrategyViewProps {
     isBotSimulating: boolean;
-    onStartSimulation: () => void;
-    onStopSimulation: () => void;
-}> = ({ addNotification, isBotSimulating, onStartSimulation, onStopSimulation }) => {
+    onToggleBot: (active: boolean) => void;
+    onAddNotification: (message: string, type: 'success' | 'error' | 'info') => void;
+}
+const StrategyView: React.FC<StrategyViewProps> = ({ isBotSimulating, onToggleBot, onAddNotification }) => {
     const [originalCode, setOriginalCode] = useState<string>(DEFAULT_SCRIPT);
     const [enhancedCode, setEnhancedCode] = useState<string>('');
-  
-    const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
-    const [isLoadingAnalysis, setIsLoadingAnalysis] = useState<boolean>(false);
-    const [analysisError, setAnalysisError] = useState<string | null>(null);
-  
+    const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+    const [backtestResults, setBacktestResults] = useState<BacktestResult | null>(null);
     const [appliedRecommendations, setAppliedRecommendations] = useState<Set<string>>(new Set());
-    const [isGeneratingScript, setIsGeneratingScript] = useState<boolean>(false);
-  
-    const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
-    const [isBacktestRunning, setIsBacktestRunning] = useState<boolean>(false);
-    const [backtestError, setBacktestError] = useState<string | null>(null);
-    const [activeBacktest, setActiveBacktest] = useState<'none' | 'original' | 'enhanced'>('none');
+    const [isLoading, setIsLoading] = useState({ analysis: true, generation: false, backtest: false, export: false });
+    const [error, setError] = useState({ analysis: null, backtest: null, export: null });
     
-    const [isExporting, setIsExporting] = useState<boolean>(false);
+    useEffect(() => {
+        handleAnalyze();
+    }, []);
 
     const handleAnalyze = async () => {
-        setIsLoadingAnalysis(true);
-        setAnalysisResult(null);
-        setAnalysisError(null);
-        setAppliedRecommendations(new Set());
-        setEnhancedCode('');
-        setBacktestResult(null);
-        setBacktestError(null);
-        setActiveBacktest('none');
+        setIsLoading(prev => ({ ...prev, analysis: true }));
+        setError(prev => ({...prev, analysis: null}));
         try {
             const result = await analyzeCode(originalCode);
-            setAnalysisResult(result);
-            const allRecTitles = new Set(result.recommendations.map(r => r.title));
-            setAppliedRecommendations(allRecTitles);
-        } catch (error) {
-            console.error("Analysis failed:", error);
-            setAnalysisError("Failed to analyze the script. Please check the console for details.");
+            setAnalysis(result);
+            setAppliedRecommendations(new Set(result.recommendations.map(r => r.title)));
+        } catch (e: any) {
+            setError(prev => ({...prev, analysis: e.message}));
+            onAddNotification(`Analysis failed: ${e.message}`, 'error');
         } finally {
-            setIsLoadingAnalysis(false);
+            setIsLoading(prev => ({ ...prev, analysis: false }));
         }
     };
-
-    const handleToggleRecommendation = (title: string) => {
-        setAppliedRecommendations(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(title)) {
-                newSet.delete(title);
-            } else {
-                newSet.add(title);
-            }
-            return newSet;
-        });
-    };
-
+    
     const handleGenerateScript = async () => {
-        if (!analysisResult || appliedRecommendations.size === 0) return;
-        setIsGeneratingScript(true);
+        if (!analysis) return;
+        setIsLoading(prev => ({ ...prev, generation: true }));
         setEnhancedCode('');
         try {
-            const selectedRecommendations = analysisResult.recommendations.filter(rec => appliedRecommendations.has(rec.title));
-            const generatedCode = await generateEnhancedCode(originalCode, selectedRecommendations);
-            setEnhancedCode(generatedCode);
-        } catch (error) {
-            console.error("Script generation failed:", error);
+            const selectedRecs = analysis.recommendations.filter(r => appliedRecommendations.has(r.title));
+            const code = await generateEnhancedCode(originalCode, selectedRecs);
+            setEnhancedCode(code);
+            onAddNotification('Enhanced script generated successfully!', 'success');
+        } catch (e: any) {
+            onAddNotification(`Script generation failed: ${e.message}`, 'error');
         } finally {
-            setIsGeneratingScript(false);
+            setIsLoading(prev => ({ ...prev, generation: false }));
         }
     };
-
-    const handleRunBacktest = async (codeToRun: 'original' | 'enhanced') => {
-        const code = codeToRun === 'original' ? originalCode : enhancedCode;
-        if (!code) return;
-        
-        setActiveBacktest(codeToRun);
-        setIsBacktestRunning(true);
-        setBacktestResult(null);
-        setBacktestError(null);
     
+    const handleRunBacktest = async () => {
+        setIsLoading(prev => ({ ...prev, backtest: true }));
+        setBacktestResults(null);
+        setError(prev => ({ ...prev, backtest: null }));
         try {
-            const result = await runBacktest(code);
-            setBacktestResult(result);
-        } catch(e: any) {
-            setBacktestError(e.message || 'An unknown error occurred during backtest.');
+            const codeToTest = enhancedCode || originalCode;
+            const results = await runBacktest(codeToTest);
+            setBacktestResults(results);
+            onAddNotification('Backtest completed!', 'success');
+        } catch (e: any) {
+            setError(prev => ({ ...prev, backtest: e.message }));
+            onAddNotification(`Backtest failed: ${e.message}`, 'error');
         } finally {
-            setIsBacktestRunning(false);
+            setIsLoading(prev => ({ ...prev, backtest: false }));
         }
-    };
-
-    const downloadFile = (content: string, fileName: string, contentType: string) => {
-        const a = document.createElement("a");
-        const file = new Blob([content], { type: contentType });
-        a.href = URL.createObjectURL(file);
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(a.href);
     };
 
     const handleExportScript = async () => {
-        if (!enhancedCode) return;
-        setIsExporting(true);
+        setIsLoading(prev => ({ ...prev, export: true }));
+        setError(prev => ({ ...prev, export: null }));
         try {
-            const liveScriptContent = await generateLiveBotScript(enhancedCode);
-            downloadFile(liveScriptContent, 'live_trading_bot.py', 'text/x-python');
-            addNotification('Live bot script exported successfully!', 'success');
-        } catch (error: any) {
-            console.error("Failed to export live bot script:", error);
-            addNotification(`Error exporting script: ${error.message}`, 'error');
+            const codeToExport = enhancedCode || originalCode;
+            const liveScript = await generateLiveBotScript(codeToExport);
+            
+            const blob = new Blob([liveScript], { type: 'text/x-python;charset=utf-8' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'live_trading_bot.py';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            onAddNotification('Live bot script exported!', 'success');
+        } catch (e: any) {
+            setError(prev => ({ ...prev, export: e.message }));
+            onAddNotification(`Export failed: ${e.message}`, 'error');
         } finally {
-            setIsExporting(false);
+            setIsLoading(prev => ({ ...prev, export: false }));
         }
     };
 
-
+    const toggleRecommendation = (title: string) => {
+        setAppliedRecommendations(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(title)) newSet.delete(title);
+            else newSet.add(title);
+            return newSet;
+        });
+    };
+    
     return (
-        <div className="p-6 space-y-6 h-full overflow-y-auto">
-            {!analysisResult && !isLoadingAnalysis && (
-                <div className="flex flex-col items-center justify-center h-full text-center">
-                    <div className="max-w-3xl w-full bg-gray-800/50 border border-gray-700 rounded-xl shadow-lg p-8">
-                        <h2 className="text-2xl font-bold text-white mb-2">AI Strategy Enhancer</h2>
-                        <p className="text-gray-400 mb-6">Paste your Python trading script below to analyze, enhance, and deploy a standalone bot.</p>
-                        <textarea
-                            value={originalCode}
-                            onChange={(e) => setOriginalCode(e.target.value)}
-                            placeholder="Paste your Python script here..."
-                            className="w-full h-80 bg-gray-900 border border-gray-600 rounded-md p-4 text-sm font-mono text-gray-300 focus:outline-none focus:ring-2 focus:ring-cyan-500 resize-none"
-                        />
-                         <div className="mt-6 flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4">
-                            <button
-                                onClick={handleAnalyze}
-                                disabled={isLoadingAnalysis || !originalCode.trim()}
-                                className="w-full sm:w-auto bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center transition-colors shadow-lg"
-                            >
-                                <SparklesIcon /> <span className="ml-2">Analyze Script</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-            
-            {isLoadingAnalysis && (
-                <div className="flex flex-col items-center justify-center h-full">
-                    <LoadingIcon className="h-10 w-10 animate-spin text-cyan-400" />
-                    <p className="mt-4 text-lg font-semibold text-cyan-400">Analyzing script with Gemini...</p>
-                    <p className="text-gray-500">This might take a moment.</p>
-                </div>
-            )}
-
-            {analysisError && (
-                 <div className="flex items-center justify-center h-full p-4">
-                    <p className="text-red-400 text-center bg-red-900/50 border border-red-700 p-4 rounded-lg">
-                        <strong className="font-bold">Analysis Failed:</strong> {analysisError}
-                    </p>
-                </div>
-            )}
-
-            {analysisResult && !isLoadingAnalysis && (
-                <>
-                    <div className="flex-shrink-0 bg-gray-800 rounded-lg shadow-lg p-4 mb-6 flex justify-between items-center border border-gray-700">
-                        <div className="flex items-center space-x-4">
-                            <RocketIcon className="h-8 w-8 text-cyan-400" />
-                            <div>
-                                <h3 className="text-lg font-semibold text-white">Live AI Deployment (Simulation)</h3>
-                                <p className="text-sm text-gray-400">Deploy your enhanced strategy to a 24/7 simulated environment.</p>
-                            </div>
-                        </div>
-                        <div className="flex-shrink-0 relative group">
-                            {!isBotSimulating ? (
-                                <Button
-                                    onClick={onStartSimulation}
-                                    variant="primary"
-                                    disabled={!enhancedCode || isGeneratingScript}
-                                    className="!px-5 !py-2.5 flex items-center"
-                                >
-                                    <PlayIcon className="h-5 w-5" />
-                                    <span className="ml-2 font-semibold">Deploy Strategy</span>
-                                </Button>
-                            ) : (
-                                <Button
-                                    onClick={onStopSimulation}
-                                    variant="secondary"
-                                    className="!bg-red-600 hover:!bg-red-700 !focus:ring-red-500 !text-white !px-5 !py-2.5 flex items-center"
-                                >
-                                    <StopIcon className="h-5 w-5" />
-                                    <span className="ml-2 font-semibold">Stop Deployment</span>
-                                </Button>
-                            )}
-                            {/* Tooltip for disabled state */}
-                            {(!enhancedCode || isGeneratingScript) && (
-                                <div className="absolute bottom-full mb-2 w-max bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 left-1/2 -translate-x-1/2">
-                                    Generate an enhanced script to enable deployment.
+        <div className="p-6 grid grid-cols-3 gap-6 h-full">
+            <div className="col-span-1 flex flex-col gap-6">
+                {isLoading.analysis ? (
+                    <Card className="flex items-center justify-center p-8 h-full"><LoadingIcon className="w-8 h-8" /></Card>
+                ) : error.analysis || !analysis ? (
+                    <Card className="flex flex-col items-center justify-center p-8 h-full text-center">
+                        <ExclamationTriangleIcon className="w-10 h-10 text-red-400" />
+                        <p className="mt-4 text-red-400">Failed to analyze script.</p>
+                        <p className="text-xs text-gray-400 mt-1">{error.analysis}</p>
+                        <Button onClick={handleAnalyze} className="mt-4">Retry Analysis</Button>
+                    </Card>
+                ) : (
+                    <RecommendationsPanel
+                        analysis={analysis}
+                        appliedRecommendations={appliedRecommendations}
+                        onToggleRecommendation={toggleRecommendation}
+                        onGenerateScript={handleGenerateScript}
+                        isGenerating={isLoading.generation}
+                    />
+                )}
+            </div>
+            <div className="col-span-2 flex flex-col gap-6">
+                 <Card className="p-4 flex justify-between items-center">
+                     <div className="flex flex-col">
+                        <h3 className="text-lg font-bold text-white">Strategy Deployment</h3>
+                        <p className="text-sm text-gray-400">Simulate your enhanced strategy with live market data.</p>
+                     </div>
+                     {isBotSimulating ? (
+                        <Button onClick={() => onToggleBot(false)} variant="secondary" className="!bg-red-600 hover:!bg-red-700 w-48 flex items-center justify-center">
+                            <StopIcon /><span className="ml-2">Stop Deployment</span>
+                        </Button>
+                     ) : (
+                        <div className="relative group">
+                            <Button onClick={() => onToggleBot(true)} variant="primary" disabled={!enhancedCode} className="w-48 flex items-center justify-center">
+                                <PlayIcon className="!h-5 !w-5" /><span className="ml-2">Deploy Strategy</span>
+                            </Button>
+                            {!enhancedCode && (
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
+                                    Generate the enhanced script to enable deployment.
                                 </div>
                             )}
                         </div>
-                    </div>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
-                        <div className="space-y-6 flex flex-col min-h-0">
-                            <RecommendationsPanel 
-                                analysis={analysisResult}
-                                appliedRecommendations={appliedRecommendations}
-                                onToggleRecommendation={handleToggleRecommendation}
-                                onGenerateScript={handleGenerateScript}
-                                isGenerating={isGeneratingScript}
-                            />
-
-                             <div className="flex-grow">
-                                 <BacktestResults 
-                                    results={backtestResult}
-                                    isLoading={isBacktestRunning}
-                                    error={backtestError}
-                                 />
-                            </div>
-                        </div>
-                        <div className="space-y-6 flex flex-col min-h-0">
-                            <CodeViewer
-                                title="Original Script"
-                                code={originalCode}
-                                isBacktestRunning={isBacktestRunning && activeBacktest === 'original'}
-                                onRunBacktest={() => handleRunBacktest('original')}
-                            />
-                            <CodeViewer
-                                title="Enhanced Script"
-                                code={enhancedCode}
-                                isLoading={isGeneratingScript}
-                                isBacktestRunning={isBacktestRunning && activeBacktest === 'enhanced'}
-                                onRunBacktest={() => handleRunBacktest('enhanced')}
-                                onExportScript={handleExportScript}
-                                isExporting={isExporting}
-                            />
-                        </div>
-                    </div>
-                </>
-            )}
+                     )}
+                 </Card>
+                <div className="grid grid-rows-2 gap-6 flex-grow">
+                    <CodeViewer
+                        title="Enhanced Strategy Script"
+                        code={enhancedCode}
+                        isLoading={isLoading.generation}
+                        isBacktestRunning={isLoading.backtest}
+                        onRunBacktest={handleRunBacktest}
+                        onExportScript={handleExportScript}
+                        isExporting={isLoading.export}
+                    />
+                    <BacktestResults results={backtestResults} isLoading={isLoading.backtest} error={error.backtest} />
+                </div>
+            </div>
         </div>
     );
 };
 
-const HistoryView: React.FC<{ trades: ClosedTrade[], positions: Position[] }> = ({ trades, positions }) => {
-    const totalTrades = trades.length;
-    const tradesWon = trades.filter(t => t.pnl > 0).length;
-    const tradesLost = totalTrades - tradesWon;
-    const totalWon = trades.filter(t => t.pnl > 0).reduce((sum, t) => sum + t.pnl, 0);
-    const totalLost = trades.filter(t => t.pnl <= 0).reduce((sum, t) => sum + t.pnl, 0);
-    const netProfit = totalWon + totalLost;
-    const winRate = totalTrades > 0 ? (tradesWon / totalTrades) * 100 : 0;
+const SettingsView: React.FC<{
+    onAddNotification: (message: string, type: 'success' | 'error' | 'info') => void;
+}> = ({ onAddNotification }) => {
+    const { apiKey, setApiKey, apiSecret, setApiSecret, isConnected, setIsConnected, environment, setEnvironment, tradeMethod, setTradeMethod } = useAPI();
+    const [isConnecting, setIsConnecting] = useState(false);
 
-    const stats = [
-        { label: 'Total Closed', value: totalTrades },
-        { label: 'Trades Won', value: tradesWon },
-        { label: 'Trades Lost', value: tradesLost },
-        { label: 'Win Rate', value: `${winRate.toFixed(2)}%` },
-        { label: 'Total Won', value: `$${totalWon.toFixed(2)}`, color: 'text-green-400' },
-        { label: 'Total Lost', value: `$${Math.abs(totalLost).toFixed(2)}`, color: 'text-red-400' },
-        { label: 'Net Profit', value: `${netProfit >= 0 ? '+' : '-'}$${Math.abs(netProfit).toFixed(2)}`, color: netProfit >= 0 ? 'text-green-400' : 'text-red-400' },
-    ];
-
-    const allTradeItems = [
-        ...positions.map(p => ({
-            id: p.id,
-            asset: p.asset,
-            direction: p.direction,
-            entryPrice: p.entryPrice,
-            exitPrice: null,
-            size: p.size,
-            pnl: p.pnl,
-            openTimestamp: p.openTimestamp,
-            closeTimestamp: null,
-            status: 'Open',
-        })),
-        ...trades.map(t => ({
-            ...t,
-            status: 'Closed',
-        }))
-    ].sort((a, b) => new Date(b.openTimestamp).getTime() - new Date(a.openTimestamp).getTime());
-    
-    return (
-        <div className="p-6 space-y-6">
-            <Card>
-                <div className="p-4">
-                    <h3 className="text-lg font-semibold text-white mb-3">Performance Summary (Closed Trades)</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-                        {stats.map(stat => (
-                            <div key={stat.label} className="bg-gray-900/70 p-4 rounded-lg text-center">
-                                <p className="text-sm text-gray-400">{stat.label}</p>
-                                <p className={`text-xl font-bold ${stat.color || 'text-white'}`}>{stat.value}</p>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-                <div className="border-t border-gray-700">
-                    <h3 className="text-lg font-semibold text-white p-4">Trade Log (All Trades)</h3>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="text-xs text-gray-400 uppercase bg-gray-800">
-                                <tr>
-                                    <th className="px-6 py-3">Asset</th>
-                                    <th className="px-6 py-3">Direction</th>
-                                    <th className="px-6 py-3">Size</th>
-                                    <th className="px-6 py-3">Entry Price</th>
-                                    <th className="px-6 py-3">Exit Price</th>
-                                    <th className="px-6 py-3">PnL</th>
-                                    <th className="px-6 py-3">Opened</th>
-                                    <th className="px-6 py-3">Closed</th>
-                                    <th className="px-6 py-3">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {allTradeItems.length > 0 ? allTradeItems.map(trade => (
-                                    <tr key={trade.id} className="border-b border-gray-700 last:border-b-0 hover:bg-gray-800/70 transition-colors">
-                                        <td className="px-6 py-4 font-semibold text-white">{trade.asset}</td>
-                                        <td className={`px-6 py-4 font-semibold ${trade.direction === 'LONG' ? 'text-green-400' : 'text-red-400'}`}>{trade.direction}</td>
-                                        <td className="px-6 py-4">{trade.size.toFixed(6)}</td>
-                                        <td className="px-6 py-4">${trade.entryPrice.toLocaleString()}</td>
-                                        <td className="px-6 py-4">
-                                            {trade.exitPrice ? `$${trade.exitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-gray-500">--</span>}
-                                        </td>
-                                        <td className={`px-6 py-4 font-semibold ${trade.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                            {trade.pnl >= 0 ? '+' : '-'}${Math.abs(trade.pnl).toFixed(2)}
-                                        </td>
-                                        <td className="px-6 py-4 text-sm text-gray-400">{new Date(trade.openTimestamp).toLocaleString()}</td>
-                                        <td className="px-6 py-4 text-sm text-gray-400">
-                                            {trade.closeTimestamp ? new Date(trade.closeTimestamp).toLocaleString() : <span className="text-gray-500">--</span>}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <span className={`inline-block text-center min-w-[64px] px-2 py-1 text-xs font-semibold rounded-full ${
-                                                trade.status === 'Open' 
-                                                ? 'bg-cyan-500/20 text-cyan-300' 
-                                                : (trade.pnl >= 0 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400')
-                                            }`}>
-                                                {trade.status}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                )) : (
-                                    <tr>
-                                        <td colSpan={9} className="text-center py-12 text-gray-500">No trades yet.</td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </Card>
-        </div>
-    );
-};
-
-const AboutView: React.FC = () => (
-    <div className="p-6 max-w-4xl mx-auto">
-        <Card className="p-8">
-            <div className="text-center mb-8">
-                 <ArrowTrendingUpIcon className="w-12 h-12 mx-auto text-cyan-400"/>
-                 <h2 className="text-3xl font-bold text-white mt-4">About Xamanix Trading Bot</h2>
-                 <p className="text-lg text-gray-400 mt-2">Your AI-Powered Partner in Algorithmic Trading</p>
-            </div>
-
-            <div className="space-y-6 text-gray-300">
-                <p>
-                    Xamanix is a sophisticated, AI-driven platform designed to empower both novice and experienced traders by transforming their Python trading scripts into more robust, efficient, and profitable strategies. We bridge the gap between a great idea and a market-ready trading bot.
-                </p>
-                <p>
-                    By harnessing the advanced analytical capabilities of Google's Gemini API, Xamanix provides a suite of tools to dissect, refine, and validate your trading logic. Our platform automates the tedious process of code review and enhancement, allowing you to focus on what truly matters: crafting winning strategies.
-                </p>
-
-                <div className="pt-4">
-                    <h3 className="text-xl font-semibold text-white mb-4">Key Features</h3>
-                    <ul className="grid grid-cols-1 md:grid-cols-2 gap-4 list-inside">
-                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>AI Script Analysis:</strong> Get deep insights into your strategy's parameters and logic.</span></li>
-                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Intelligent Recommendations:</strong> Receive actionable suggestions for improving risk management, signal confirmation, and more.</span></li>
-                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>One-Click Backtesting:</strong> Instantly run detailed backtests on both original and AI-enhanced scripts.</span></li>
-                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Simulated Cloud Deployment:</strong> Deploy your bot to a simulated 24/7 environment with a single click—no files needed.</span></li>
-                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Real-Time Monitoring:</strong> Keep track of your manual trades, open positions, and PnL through an intuitive dashboard.</span></li>
-                        <li className="flex items-start"><CheckCircleIcon className="w-5 h-5 mr-2 mt-1 text-cyan-400 flex-shrink-0" /><span><strong>Live Exchange Integration:</strong> Connect securely to your Bybit account to manage your portfolio and execute manual trades.</span></li>
-                    </ul>
-                </div>
-            </div>
-        </Card>
-    </div>
-);
-
-const ContactView: React.FC<{ onFormSubmit: (submission: Omit<UserSubmission, 'id' | 'timestamp' | 'read'>) => void }> = ({ onFormSubmit }) => {
-    const [formState, setFormState] = useState({ name: '', email: '', subject: '', message: '' });
-    const [type, setType] = useState<'comment' | 'complaint'>('comment');
-    const [isSubmitted, setIsSubmitted] = useState(false);
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-        const { name, value } = e.target;
-        setFormState(prev => ({ ...prev, [name]: value }));
+    const handleConnect = async () => {
+        setIsConnecting(true);
+        try {
+            await verifyAndFetchBalances(apiKey, apiSecret, environment);
+            setIsConnected(true);
+            onAddNotification('Successfully connected to Bybit!', 'success');
+        } catch (error: any) {
+            setIsConnected(false);
+            onAddNotification(`Connection failed: ${error.message}`, 'error');
+        } finally {
+            setIsConnecting(false);
+        }
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        onFormSubmit({ ...formState, type });
-        setFormState({ name: '', email: '', subject: '', message: '' });
-        setType('comment');
-        setIsSubmitted(true);
+    const handleDisconnect = () => {
+        setIsConnected(false);
+        onAddNotification('Disconnected from exchange.', 'info');
     };
 
-    if (isSubmitted) {
-        return (
-            <div className="p-6 flex items-center justify-center h-full text-center">
-                <Card className="p-8 max-w-md">
-                    <CheckCircleIcon className="w-12 h-12 mx-auto text-green-400" />
-                    <h3 className="text-xl font-bold text-white mt-4">Thank You!</h3>
-                    <p className="text-gray-400 mt-2 mb-6">
-                        Your message has been sent successfully. Our team will get back to you as soon as possible.
-                    </p>
-                    <Button onClick={() => setIsSubmitted(false)}>
-                        Send Another Message
-                    </Button>
-                </Card>
-            </div>
-        );
-    }
-    
     return (
         <div className="p-6 max-w-2xl mx-auto">
-            <Card className="p-8">
-                <h2 className="text-2xl font-bold text-white mb-2">Contact Us</h2>
-                <p className="text-gray-400 mb-6">
-                    Have a question, feedback, or need support? Fill out the form below and we'll get back to you.
-                </p>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <div className="space-y-1">
-                        <label className="block text-sm font-medium text-gray-400">Message Type</label>
-                        <div className="flex space-x-4">
-                            <label className="flex items-center">
-                                <input type="radio" name="type" value="comment" checked={type === 'comment'} onChange={() => setType('comment')} className="h-4 w-4 text-cyan-600 bg-gray-700 border-gray-600 focus:ring-cyan-500" />
-                                <span className="ml-2 text-gray-300">General Comment</span>
-                            </label>
-                            <label className="flex items-center">
-                                <input type="radio" name="type" value="complaint" checked={type === 'complaint'} onChange={() => setType('complaint')} className="h-4 w-4 text-cyan-600 bg-gray-700 border-gray-600 focus:ring-cyan-500" />
-                                <span className="ml-2 text-gray-300">Private Complaint</span>
-                            </label>
-                        </div>
-                    </div>
-                    <Input label="Your Name" name="name" value={formState.name} onChange={handleChange} placeholder="John Doe" />
-                    <Input label="Your Email" name="email" type="email" value={formState.email} onChange={handleChange} placeholder="you@example.com" />
-                    <Input label="Subject" name="subject" value={formState.subject} onChange={handleChange} placeholder="Regarding my strategy..." />
-                    <Textarea label="Message" name="message" value={formState.message} onChange={handleChange} placeholder="Your message here..." />
+            <Card className="p-6">
+                <h2 className="text-2xl font-bold text-white mb-1">Exchange Connection</h2>
+                <p className="text-gray-400 mb-6">Connect your Bybit account to enable live trading and portfolio tracking.</p>
+
+                <div className="space-y-4">
+                    <Input label="API Key" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Enter your Bybit API Key" disabled={isConnected} />
+                    <Input label="API Secret" type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)} placeholder="Enter your Bybit API Secret" disabled={isConnected} />
+                    <ToggleSwitch label="Use Testnet Environment" enabled={environment === 'testnet'} onChange={enabled => setEnvironment(enabled ? 'testnet' : 'mainnet')} disabled={isConnected} />
+                    
                     <div className="pt-2">
-                        <Button type="submit" variant="primary" className="w-full">
-                            Send Message
-                        </Button>
+                        {isConnected ? (
+                            <Button onClick={handleDisconnect} variant="secondary" className="w-full !py-3 !bg-red-600 hover:!bg-red-700">Disconnect</Button>
+                        ) : (
+                            <Button onClick={handleConnect} variant="primary" className="w-full !py-3" disabled={isConnecting || !apiKey || !apiSecret}>
+                                {isConnecting ? <LoadingIcon /> : <LinkIcon />} <span className="ml-2">{isConnecting ? 'Connecting...' : 'Connect to Bybit'}</span>
+                            </Button>
+                        )}
                     </div>
-                </form>
+                </div>
+            </Card>
+            
+            <Card className="p-6 mt-6">
+                 <h2 className="text-2xl font-bold text-white mb-1">Trading Preferences</h2>
+                 <p className="text-gray-400 mb-6">Configure default settings for manual trading.</p>
+                 <ToggleSwitch label="Default to Limit Orders" enabled={tradeMethod === 'Limit'} onChange={enabled => setTradeMethod(enabled ? 'Limit' : 'Market')} />
+                 <p className="text-xs text-gray-500 mt-2">When enabled, the trade panel will default to Limit orders. This can be toggled per trade.</p>
             </Card>
         </div>
     );
 };
 
-const AdminView: React.FC<{ submissions: UserSubmission[], onMarkAsRead: (id: string) => void }> = ({ submissions, onMarkAsRead }) => {
-    const [activeTab, setActiveTab] = useState<'complaint' | 'comment'>('complaint');
-    const [expandedId, setExpandedId] = useState<string | null>(null);
 
-    const filteredSubmissions = submissions.filter(s => s.type === activeTab);
+// ============================================================================
+// MAIN APP COMPONENT
+// ============================================================================
 
-    const handleToggleExpand = (id: string) => {
-        const submission = submissions.find(s => s.id === id);
-        if (submission && !submission.read) {
-            onMarkAsRead(id);
-        }
-        setExpandedId(prevId => (prevId === id ? null : id));
-    };
-
-    return (
-        <div className="p-6 max-w-5xl mx-auto space-y-6">
-            <Card>
-                 <div className="p-4 border-b border-gray-700">
-                    <h2 className="text-2xl font-bold text-white">Admin Panel</h2>
-                    <p className="text-gray-400">View user feedback and complaints.</p>
-                 </div>
-                 <div className="border-b border-gray-700">
-                    <nav className="-mb-px flex px-4" aria-label="Tabs">
-                        <button onClick={() => setActiveTab('complaint')} className={`${activeTab === 'complaint' ? 'border-cyan-400 text-cyan-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'} capitalize whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm`}>
-                            Complaints
-                        </button>
-                        <button onClick={() => setActiveTab('comment')} className={`${activeTab === 'comment' ? 'border-cyan-400 text-cyan-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'} ml-8 capitalize whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm`}>
-                            Comments
-                        </button>
-                    </nav>
-                </div>
-                 <div className="divide-y divide-gray-700">
-                    {filteredSubmissions.length > 0 ? filteredSubmissions.map(sub => (
-                         <div key={sub.id}>
-                            <div onClick={() => handleToggleExpand(sub.id)} className="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-800 transition-colors">
-                                <div className="flex items-center">
-                                     <div className={`w-2.5 h-2.5 rounded-full mr-4 ${!sub.read ? 'bg-cyan-400' : 'bg-transparent'}`}></div>
-                                     <div>
-                                        <p className={`font-semibold text-white ${!sub.read ? 'font-bold' : ''}`}>{sub.subject}</p>
-                                        <p className="text-sm text-gray-400">From: {sub.name} ({sub.email})</p>
-                                     </div>
-                                </div>
-                                <span className="text-xs text-gray-500">{new Date(sub.timestamp).toLocaleString()}</span>
-                            </div>
-                            {expandedId === sub.id && (
-                                <div className="p-4 bg-gray-900/50">
-                                    <p className="text-gray-300 whitespace-pre-wrap">{sub.message}</p>
-                                </div>
-                            )}
-                         </div>
-                    )) : (
-                        <p className="text-center text-gray-500 py-12">No {activeTab}s yet.</p>
-                    )}
-                </div>
-            </Card>
-        </div>
-    );
-};
-
-// Main App Structure
-interface NavItemData {
-    id: string;
-    label: string;
-    icon: React.ReactElement;
-    badge?: number;
-}
-
-const NavItem: React.FC<{
-    icon: React.ReactElement;
-    label: string;
-    isActive: boolean;
-    onClick: () => void;
-    badge?: number;
-}> = ({ icon, label, isActive, onClick, badge }) => (
-    <button
-        onClick={onClick}
-        className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors relative ${isActive ? 'bg-cyan-500/20 text-cyan-300' : 'text-gray-400 hover:bg-gray-700/50 hover:text-white'}`}
-    >
-        {icon}
-        <span className="font-semibold">{label}</span>
-        {badge && badge > 0 ? (
-            <span className="absolute top-1.5 right-1.5 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
-                {badge}
-            </span>
-        ) : null}
-    </button>
-);
-
-
-const Sidebar: React.FC<{
-    currentView: string;
-    setView: (view: string) => void;
-    isAdminVisible: boolean;
-    onTitleClick: () => void;
-    positionsCount: number;
-    unreadSubmissionsCount: number;
-}> = ({ currentView, setView, isAdminVisible, onTitleClick, positionsCount, unreadSubmissionsCount }) => {
-
-    const navItems: NavItemData[] = [
-        { id: 'dashboard', label: 'Dashboard', icon: <DashboardIcon />, badge: positionsCount },
-        { id: 'trade', label: 'Trade', icon: <TradeIcon /> },
-        { id: 'strategy', label: 'Strategy', icon: <ArrowTrendingUpIcon /> },
-        { id: 'history', label: 'History', icon: <HistoryIcon /> },
-        { id: 'wallet', label: 'Wallet', icon: <WalletIcon /> },
-    ];
-
-    const secondaryNavItems: NavItemData[] = [
-        { id: 'settings', label: 'Settings', icon: <SettingsIcon /> },
-        { id: 'about', label: 'About', icon: <AboutIcon /> },
-        { id: 'contact', label: 'Contact Us', icon: <ContactIcon /> },
-    ];
-    
-     if (isAdminVisible) {
-        secondaryNavItems.push({ id: 'admin', label: 'Admin Panel', icon: <AdminIcon />, badge: unreadSubmissionsCount });
-    }
-
-    return (
-        <div className="w-64 bg-gray-900/80 border-r border-gray-700/50 p-4 flex flex-col">
-            <div className="flex items-center space-x-2 mb-8 px-2 cursor-pointer" onClick={onTitleClick}>
-                <ChartBarIcon className="h-8 w-8 text-cyan-400" />
-                <h1 className="text-2xl font-bold text-white">Xamanix</h1>
-            </div>
-            <nav className="space-y-2 flex-grow">
-                {navItems.map(item => (
-                    <NavItem
-                        key={item.id}
-                        icon={item.icon}
-                        label={item.label}
-                        isActive={currentView === item.id}
-                        onClick={() => setView(item.id)}
-                        badge={item.badge}
-                    />
-                ))}
-            </nav>
-            <div className="space-y-2 border-t border-gray-700 pt-4">
-                 {secondaryNavItems.map(item => (
-                    <NavItem
-                        key={item.id}
-                        icon={item.icon}
-                        label={item.label}
-                        isActive={currentView === item.id}
-                        onClick={() => setView(item.id)}
-                        badge={item.badge}
-                    />
-                ))}
-            </div>
-        </div>
-    );
-};
-
-const NotificationToast: React.FC<{ notification: Notification; onDismiss: () => void }> = ({ notification, onDismiss }) => {
-    const typeClasses = {
-        success: 'bg-green-800/80 border-green-600',
-        error: 'bg-red-800/80 border-red-600',
-        info: 'bg-blue-800/80 border-blue-600',
-    };
-
-    useEffect(() => {
-        const timer = setTimeout(onDismiss, 5000);
-        return () => clearTimeout(timer);
-    }, [onDismiss]);
-
-    return (
-        <div className={`w-80 rounded-lg shadow-2xl p-4 border text-white backdrop-blur-md ${typeClasses[notification.type]}`}>
-            <div className="flex items-start">
-                <div className="flex-shrink-0">{notification.icon}</div>
-                <div className="ml-3 w-0 flex-1">
-                    <p className="text-sm font-medium">{notification.message}</p>
-                </div>
-                <div className="ml-4 flex-shrink-0 flex">
-                    <button onClick={onDismiss} className="inline-flex text-gray-300 hover:text-white">
-                        <CloseIcon className="h-5 w-5" />
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const NotificationContainer: React.FC<{ notifications: Notification[]; onDismiss: (id: number) => void }> = ({ notifications, onDismiss }) => (
-    <div className="fixed top-4 right-4 z-50 space-y-3">
-        {notifications.map(n => (
-            <NotificationToast key={n.id} notification={n} onDismiss={() => onDismiss(n.id)} />
-        ))}
-    </div>
-);
-
-const LiveTradingWarningModal: React.FC<{ onAccept: () => void; onCancel: () => void; environment: 'testnet' | 'mainnet'; }> = ({ onAccept, onCancel, environment }) => {
-    
-    const details = {
-        testnet: {
-            title: 'Connect to Testnet?',
-            subtitle: 'You are connecting to a live paper trading environment.',
-            color: 'border-yellow-500/50',
-            icon: <ExclamationTriangleIcon className="w-10 h-10 text-yellow-400 mr-4 flex-shrink-0" />,
-            points: [
-                'Trades are executed against live market data.',
-                'All funds used are play money provided by the exchange\'s Testnet.',
-                'This is a crucial step for testing strategies without financial risk.'
-            ],
-             buttonClass: '!bg-yellow-600 hover:!bg-yellow-700 !focus:ring-yellow-500 text-white'
-        },
-        mainnet: {
-            title: 'WARNING: Connect to Mainnet?',
-            subtitle: 'You are about to execute trades with REAL FUNDS.',
-            color: 'border-red-500/50',
-            icon: <ExclamationTriangleIcon className="w-10 h-10 text-red-400 mr-4 flex-shrink-0" />,
-            points: [
-                'This action connects to your live exchange account.',
-                'All trades executed by the AI or manually will use your REAL account balance.',
-                'Financial losses are possible and are your sole responsibility.',
-                'Ensure you understand the risks and have thoroughly tested your strategy.'
-            ],
-            buttonClass: '!bg-red-600 hover:!bg-red-700 !focus:ring-red-500 text-white'
-        }
-    };
-    
-    const currentDetails = details[environment];
-    
-    return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
-        <Card className={`max-w-lg p-8 ${currentDetails.color}`}>
-            <div className="flex items-center">
-                {currentDetails.icon}
-                <div>
-                    <h2 className="text-2xl font-bold text-white">{currentDetails.title}</h2>
-                    <p className="text-yellow-200 mt-1">{currentDetails.subtitle}</p>
-                </div>
-            </div>
-            <div className="mt-6 text-gray-300 space-y-3">
-                <p>By proceeding, you acknowledge and agree to the following:</p>
-                <ul className="list-disc list-inside space-y-2 text-sm pl-2">
-                    {currentDetails.points.map((point, i) => (
-                        <li key={i} dangerouslySetInnerHTML={{ __html: point.replace(/REAL/g, '<strong class="text-white">REAL</strong>') }} />
-                    ))}
-                     <li>The creators of this application are not liable for any data discrepancies or financial losses.</li>
-                </ul>
-                <p>Please trade responsibly.</p>
-            </div>
-            <div className="mt-8 flex justify-end space-x-4">
-                <Button onClick={onCancel} variant="secondary">Cancel</Button>
-                <Button onClick={onAccept} className={currentDetails.buttonClass}>
-                    I Understand and Accept the Risks
-                </Button>
-            </div>
-        </Card>
-    </div>
-)};
-
-const WelcomeModal: React.FC<{ onAccept: () => void }> = ({ onAccept }) => {
-    return (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
-            <Card className="max-w-xl p-8 border-cyan-500/30">
-                <div className="text-center">
-                    <RocketIcon className="w-12 h-12 mx-auto text-cyan-400"/>
-                    <h2 className="text-2xl font-bold text-white mt-4">Welcome to Xamanix</h2>
-                    <p className="text-lg text-gray-300 mt-1">Your Professional Trading Bot Factory</p>
-                </div>
-                <div className="mt-6 text-gray-300/90 space-y-4 text-left">
-                    <p className="flex items-start">
-                        <ShieldCheckIcon className="w-6 h-6 mr-3 mt-0.5 text-green-400 flex-shrink-0" />
-                        <span>
-                            <strong>All-in-One Platform:</strong> This app is your complete command center. Analyze, backtest, and deploy your trading strategies to our secure, simulated cloud environment with a single click.
-                        </span>
-                    </p>
-                    <p className="flex items-start">
-                        <InfoIcon className="w-6 h-6 mr-3 mt-0.5 text-cyan-400 flex-shrink-0" />
-                         <span>
-                             <strong>How it Works:</strong> Your deployed bots run 24/7 in our simulated environment. You can monitor their activity on your dashboard and stop them anytime from the Strategy page. No downloads or coding required!
-                         </span>
-                    </p>
-                </div>
-                <div className="mt-8 flex justify-center">
-                    <Button onClick={onAccept} variant="primary" className="!px-8 !py-3 !text-lg">
-                        I Understand, Let's Get Started!
-                    </Button>
-                </div>
-            </Card>
-        </div>
-    );
-};
-
-const LiveBanner: React.FC = () => (
-    <div className="bg-red-600 text-white text-center py-1 text-sm font-bold flex items-center justify-center flex-shrink-0">
-        <ExclamationTriangleIcon className="w-4 h-4 mr-2" />
-        LIVE TRADING ACTIVE. REAL FUNDS ARE AT RISK.
-    </div>
-);
-
-
-function AppContent() {
-    const [view, setView] = useState('dashboard');
-    const [positions, setPositions] = useState<Position[]>([]);
-    const [assets, setAssets] = useState<Asset[]>([]);
-    const [realizedPnl, setRealizedPnl] = useState(0);
-    const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
-    const [closedTrades, setClosedTrades] = useState<ClosedTrade[]>([]);
-    const [submissions, setSubmissions] = useState<UserSubmission[]>([]);
-    const [isAdminVisible, setIsAdminVisible] = useState(false);
-    const [titleClickCount, setTitleClickCount] = useState(0);
-    const titleClickTimer = useRef<number | null>(null);
-    const botActivityInterval = useRef<number | null>(null);
+const App: React.FC = () => {
+    const [currentView, setCurrentView] = useState('dashboard');
     const [notifications, setNotifications] = useState<Notification[]>([]);
-    const { isConnected, setIsConnected, apiKey, apiSecret, environment } = useAPI();
-    const [aiSuggestion, setAiSuggestion] = useState({ suggestion: '', isLoading: false, error: null as string | null });
-    const [showLiveTradingWarning, setShowLiveTradingWarning] = useState(false);
-    const [pendingConnection, setPendingConnection] = useState<{ apiKey: string; apiSecret: string, environment: 'testnet' | 'mainnet' } | null>(null);
-    const [showWelcomeModal, setShowWelcomeModal] = useState<boolean>(false);
-    const [isBotSimulating, setIsBotSimulating] = useState<boolean>(() => localStorage.getItem('xamanix-botSimulating') === 'true');
-
-    useEffect(() => {
-        const welcomeSeen = localStorage.getItem('xamanix-welcome-seen');
-        if (!welcomeSeen) {
-            setShowWelcomeModal(true);
-        }
-    }, []);
-
-    const handleAcceptWelcome = () => {
-        localStorage.setItem('xamanix-welcome-seen', 'true');
-        setShowWelcomeModal(false);
-    };
-
-    const getIconForType = (type: Notification['type']): React.ReactElement => {
-        switch (type) {
-            case 'success': return <CheckCircleIcon className="w-6 h-6 text-green-400" />;
-            case 'error': return <ExclamationTriangleIcon className="w-6 h-6 text-red-400" />;
-            case 'info':
-            default: return <BellIcon className="w-6 h-6 text-blue-400" />;
-        }
-    };
-
-    const addNotification = useCallback((message: string, type: Notification['type'] = 'info') => {
-        const id = Date.now();
-        const icon = getIconForType(type);
-        setNotifications(prev => [...prev, { id, message, type, icon }]);
-    }, []);
+    const { isConnected, apiKey, apiSecret, environment } = useAPI();
     
-    const removeNotification = (id: number) => {
+    // Portfolio State
+    const [assets, setAssets] = useState<Asset[]>([]);
+    const [positions, setPositions] = useState<Position[]>([]);
+    const [history, setHistory] = useState<PortfolioHistory>(MOCK_PORTFOLIO_HISTORY);
+    const [realizedPnl, setRealizedPnl] = useState(0);
+
+    // AI & Bot State
+    const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
+    const [isBotSimulating, setIsBotSimulating] = useState(false);
+    const [aiSuggestion, setAiSuggestion] = useState({ suggestion: '', isLoading: false, error: null as string | null });
+
+    const addNotification = useCallback((message: string, type: 'success' | 'error' | 'info') => {
+        const icons = {
+            success: <CheckCircleIcon className="h-6 w-6" />,
+            error: <ExclamationTriangleIcon className="h-6 w-6" />,
+            info: <InfoIcon className="h-6 w-6" />,
+        };
+        const newNotification: Notification = { id: Date.now(), message, type, icon: icons[type] };
+        setNotifications(prev => [...prev, newNotification]);
+    }, []);
+
+    const dismissNotification = (id: number) => {
         setNotifications(prev => prev.filter(n => n.id !== id));
     };
 
-    const logActivity = useCallback((message: string, type: ActivityLogEntry['type']) => {
+    const addActivityLog = useCallback((message: string, type: ActivityLogEntry['type']) => {
         setActivityLog(prev => [...prev, { timestamp: new Date().toISOString(), message, type }]);
     }, []);
-    
-    // Bot Deployment and Simulation Logic
-    const handleStartSimulation = () => {
-        setIsBotSimulating(true);
-        localStorage.setItem('xamanix-botSimulating', 'true');
-        addNotification("Live bot simulation has been started!", 'success');
-        logActivity("Bot simulation started.", 'info');
-    };
 
-    const handleStopSimulation = () => {
-        setIsBotSimulating(false);
-        localStorage.setItem('xamanix-botSimulating', 'false');
-        addNotification("Live bot simulation has been stopped.", 'info');
-        logActivity("Bot simulation stopped.", 'info');
-    };
-    
-    // Effect to simulate bot activity
-    useEffect(() => {
-        if (isBotSimulating) {
-            botActivityInterval.current = window.setInterval(() => {
-                const randomAction = Math.random();
-                if (randomAction < 0.2) { // Simulate a trade
-                    const pnl = (Math.random() - 0.45) * 50; // Skew towards positive
-                    const newTrade: ClosedTrade = {
-                        id: `sim-${Date.now()}`,
-                        asset: 'BTC/USD',
-                        direction: Math.random() > 0.5 ? 'LONG' : 'SHORT',
-                        entryPrice: 69000 + (Math.random() - 0.5) * 500,
-                        exitPrice: 69000 + (Math.random() - 0.5) * 500 + pnl / 0.01,
-                        size: 0.01,
-                        pnl: pnl,
-                        openTimestamp: new Date(Date.now() - 3600000).toISOString(),
-                        closeTimestamp: new Date().toISOString()
-                    };
-                    setClosedTrades(prev => [...prev, newTrade]);
-                    setRealizedPnl(prev => prev + pnl);
-                    logActivity(`Simulated Bot Trade: Closed ${newTrade.direction} ${newTrade.asset} for $${pnl.toFixed(2)} PnL.`, pnl > 0 ? 'profit' : 'loss');
-                } else { // Simulate a log message
-                     logActivity("Simulated Bot: Analyzing market for signals...", 'info');
-                }
-            }, 8000); // Activity every 8 seconds
-        }
-
-        return () => {
-            if (botActivityInterval.current) {
-                clearInterval(botActivityInterval.current);
-            }
-        };
-    }, [isBotSimulating, logActivity]);
-
-
-    const refreshAllData = useCallback(async () => {
-        if (!isConnected || !apiKey || !apiSecret) return;
+    const fetchPortfolioData = useCallback(async () => {
+        if (!isConnected) return;
         try {
             const [fetchedAssets, fetchedPositions] = await Promise.all([
                 verifyAndFetchBalances(apiKey, apiSecret, environment),
@@ -1743,201 +790,174 @@ function AppContent() {
             ]);
             setAssets(fetchedAssets);
             setPositions(fetchedPositions);
-        } catch (e: any) {
-            console.error("Failed to refresh data:", e.message);
-            addNotification(`Failed to refresh data: ${e.message}`, 'error');
-            if (e.message.includes('Invalid API')) {
-                setIsConnected(false);
-            }
+        } catch (error: any) {
+            addNotification(`Failed to fetch portfolio: ${error.message}`, 'error');
         }
-    }, [isConnected, apiKey, apiSecret, environment, addNotification, setIsConnected]);
+    }, [isConnected, apiKey, apiSecret, environment, addNotification]);
 
-
-    // Effect to re-verify connection on app load and periodically refresh data
     useEffect(() => {
-        const validateAndFetchOnLoad = async () => {
-            if (isConnected && apiKey && apiSecret) {
-                logActivity(`Attempting to reconnect to ${environment}...`, 'info');
-                await refreshAllData();
+        if (isConnected) {
+            addActivityLog('Connected to exchange. Fetching data...', 'info');
+            fetchPortfolioData();
+            const interval = setInterval(fetchPortfolioData, 30000); // Poll every 30 seconds
+            return () => clearInterval(interval);
+        } else {
+            setAssets([]);
+            setPositions([]);
+        }
+    }, [isConnected, fetchPortfolioData]);
+
+    // Bot Simulation Effect
+    useEffect(() => {
+        // FIX: Changed NodeJS.Timeout to number for browser compatibility.
+        let interval: number | null = null;
+        if (isBotSimulating) {
+            addActivityLog('AI strategy deployment simulation started.', 'info');
+            interval = setInterval(() => {
+                const isLong = Math.random() > 0.5;
+                const pnl = (Math.random() - 0.45) * 50; // Simulate PnL
+                const newTrade: Position = {
+                    id: `sim-${Date.now()}`,
+                    asset: 'BTC/USD',
+                    direction: isLong ? 'LONG' : 'SHORT',
+                    entryPrice: 69000 + (Math.random() - 0.5) * 500,
+                    size: 0.01,
+                    pnl: pnl,
+                    pnlPercent: (pnl / (69000 * 0.01 / 10)) * 100, // Assuming 10x leverage
+                    openTimestamp: new Date().toISOString(),
+                };
+                addActivityLog(`Simulated Trade: New ${newTrade.direction} ${newTrade.asset} position opened.`, 'trade');
+                setPositions(prev => [...prev, newTrade]);
+                
+                // Simulate closing a position
+                if (positions.length > 0 && Math.random() > 0.7) {
+                    const posToClose = positions[0];
+                    setPositions(prev => prev.slice(1));
+                    setRealizedPnl(prev => prev + posToClose.pnl);
+                    addActivityLog(`Simulated Trade: Closed ${posToClose.direction} position for a PnL of $${posToClose.pnl.toFixed(2)}.`, posToClose.pnl >= 0 ? 'profit' : 'loss');
+                }
+            }, 8000);
+        } else {
+             if (activityLog.some(log => log.message.includes('deployment simulation started'))) {
+                addActivityLog('AI strategy deployment simulation stopped.', 'info');
             }
+        }
+        return () => {
+            if (interval) clearInterval(interval);
         };
-        validateAndFetchOnLoad();
+    }, [isBotSimulating, positions, addActivityLog]);
 
-        const intervalId = setInterval(() => {
-            if (isConnected) {
-                refreshAllData();
-            }
-        }, 15000); // Refresh every 15 seconds
 
-        return () => clearInterval(intervalId);
-    }, [isConnected, apiKey, apiSecret, environment, refreshAllData, logActivity]);
-    
-    const handleConnectAttempt = async (apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet') => {
-        setPendingConnection({ apiKey, apiSecret, environment });
-        setShowLiveTradingWarning(true);
-    };
-
-    const handleConfirmLiveTrading = async () => {
-        if (!pendingConnection) return;
-        try {
-            const { apiKey, apiSecret, environment } = pendingConnection;
-            const fetchedAssets = await verifyAndFetchBalances(apiKey, apiSecret, environment);
-            setAssets(fetchedAssets);
-            setIsConnected(true);
-            await refreshAllData();
-            addNotification(`Successfully connected to ${environment} environment!`, 'success');
-        } catch(e: any) {
-             throw e; // Re-throw to be caught in SettingsView
-        } finally {
-            setShowLiveTradingWarning(false);
-            setPendingConnection(null);
-        }
-    };
-
-    const handleDisconnect = () => {
-        setIsConnected(false);
-    };
-
-    const handleManualClosePosition = async (position: Position) => {
-        if (!apiKey || !apiSecret) {
-            addNotification("API keys not configured.", 'error');
-            return;
-        }
-        try {
-            await closeLivePosition(position, apiKey, apiSecret, environment);
-            addNotification(`Closing position for ${position.asset}.`, 'info');
-            logActivity(`Manual Close: Closing ${position.direction} for ${position.asset}.`, 'trade');
-            await refreshAllData();
-        } catch (e: any) {
-            addNotification(`Failed to close position: ${e.message}`, 'error');
-            logActivity(`Close Error: ${e.message}`, 'loss');
-        }
-    };
-    
     const handleExecuteTrade = async (details: { asset: string, direction: 'LONG' | 'SHORT', amountUSD: number, orderType: 'Market' | 'Limit', limitPrice?: string }) => {
-        if (!apiKey || !apiSecret) {
-            addNotification("API keys not configured.", 'error');
+        if (!isConnected) {
+            addNotification('Cannot execute trade. Not connected to an exchange.', 'error');
             return;
         }
         try {
             await executeLiveTrade(details, apiKey, apiSecret, environment);
-            const orderDesc = details.orderType === 'Limit' ? `Limit ${details.direction} @ $${details.limitPrice}` : `Market ${details.direction}`;
-            addNotification(`${orderDesc} order for ${details.asset} placed successfully.`, 'success');
-            logActivity(`Manual Trade: Placed ${orderDesc} order for ${details.asset} ($${details.amountUSD}).`, 'trade');
-            await refreshAllData();
-        } catch (e: any) {
-            addNotification(`Trade execution failed: ${e.message}`, 'error');
-            logActivity(`Trade Error: ${e.message}`, 'loss');
+            addNotification(`${details.direction} order for ${details.asset} placed successfully!`, 'success');
+            addActivityLog(`Manual Trade: Placed ${details.direction} order for ${details.amountUSD} USD of ${details.asset}.`, 'trade');
+            setTimeout(fetchPortfolioData, 2000); // Refresh data after a short delay
+        } catch (error: any) {
+            addNotification(`Trade failed: ${error.message}`, 'error');
+        }
+    };
+    
+    const handleManualClosePosition = async (position: Position) => {
+        if (!isConnected) {
+            addNotification('Cannot close position. Not connected to an exchange.', 'error');
+            return;
+        }
+        try {
+            await closeLivePosition(position, apiKey, apiSecret, environment);
+            addNotification(`Close order for ${position.asset} placed successfully!`, 'success');
+            addActivityLog(`Manual Close: Placed market close order for ${position.asset}.`, 'trade');
+            setTimeout(fetchPortfolioData, 2000);
+        } catch (error: any) {
+            addNotification(`Failed to close position: ${error.message}`, 'error');
         }
     };
 
-    const handleFormSubmit = (submission: Omit<UserSubmission, 'id' | 'timestamp' | 'read'>) => {
-        const newSubmission: UserSubmission = {
-            ...submission,
-            id: `sub-${Date.now()}`,
-            timestamp: new Date().toISOString(),
-            read: false,
-        };
-        setSubmissions(prev => [...prev, newSubmission]);
-        addNotification("Your message has been sent!", 'success');
-    };
-
-    const handleMarkAsRead = (id: string) => {
-        setSubmissions(prev => prev.map(s => s.id === id ? { ...s, read: true } : s));
-    };
-
-    const handleGetAISuggestion = async () => {
+    const handleGetSuggestion = async () => {
         setAiSuggestion({ suggestion: '', isLoading: true, error: null });
         try {
-            const context = `Current realized PnL for the session: $${realizedPnl.toFixed(2)}. Open positions: ${positions.length}. Total portfolio value is roughly $${(assets.find(a => a.name === 'USDT')?.usdValue ?? 0).toFixed(2)}.`;
+            const context = `Current unrealized PnL: $${positions.reduce((acc, p) => acc + p.pnl, 0).toFixed(2)}. Open positions: ${positions.length}. Total portfolio value: $${(assets.find(a=>a.name === 'USDT')?.usdValue ?? 0).toFixed(2)}.`;
             const suggestion = await getTradingSuggestion(context);
             setAiSuggestion({ suggestion, isLoading: false, error: null });
+            addActivityLog(`AI Suggestion: ${suggestion}`, 'info');
         } catch (error: any) {
-            const errorMessage = "Failed to get AI suggestion.";
-            setAiSuggestion({ suggestion: '', isLoading: false, error: errorMessage });
-            addNotification(errorMessage, 'error');
+            const errorMsg = `Failed to get AI suggestion: ${error.message}`;
+            setAiSuggestion({ suggestion: '', isLoading: false, error: errorMsg });
+            addNotification(errorMsg, 'error');
         }
     };
 
-    // Admin panel visibility logic
-    const handleTitleClick = () => {
-        if (titleClickTimer.current) {
-            clearTimeout(titleClickTimer.current);
-            titleClickTimer.current = null;
-            setTitleClickCount(prev => prev + 1);
-            if (titleClickCount + 1 >= 5) { // Show after 5 quick clicks
-                setIsAdminVisible(prev => !prev); // Toggle visibility
-                addNotification(isAdminVisible ? "Admin panel hidden." : "Admin panel unlocked.", 'info');
-                setTitleClickCount(0);
-            }
-        } else {
-            setTitleClickCount(1);
-            titleClickTimer.current = window.setTimeout(() => {
-                setTitleClickCount(0);
-                titleClickTimer.current = null;
-            }, 1000); // Reset after 1 second
-        }
-    };
+    const NavItem: React.FC<{ view: string; icon: React.ReactElement; label: string; }> = ({ view, icon, label }) => (
+        <button
+            onClick={() => setCurrentView(view)}
+            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === view ? 'bg-cyan-500/20 text-cyan-400' : 'text-gray-400 hover:bg-gray-700/50 hover:text-white'}`}
+        >
+            {icon}
+            <span className="font-semibold">{label}</span>
+        </button>
+    );
 
     const renderView = () => {
-        switch (view) {
+        switch (currentView) {
             case 'dashboard':
-                return <DashboardView history={MOCK_PORTFOLIO_HISTORY} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleManualClosePosition} activityLog={activityLog} onGetSuggestion={handleGetAISuggestion} aiSuggestion={aiSuggestion} />;
+                return <DashboardView history={history} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleManualClosePosition} activityLog={activityLog} onGetSuggestion={handleGetSuggestion} aiSuggestion={aiSuggestion} />;
             case 'trade':
                 return <TradeView data={MOCK_TRADE_VIEW_DATA} onExecuteTrade={handleExecuteTrade} isConnected={isConnected} />;
-            case 'wallet':
-                return <WalletView assets={assets} setView={setView} />;
-            case 'settings':
-                return <SettingsView onConnectAttempt={handleConnectAttempt} onDisconnect={handleDisconnect} addNotification={addNotification} />;
             case 'strategy':
-                return <StrategyView addNotification={addNotification} isBotSimulating={isBotSimulating} onStartSimulation={handleStartSimulation} onStopSimulation={handleStopSimulation} />;
-            case 'history':
-                return <HistoryView trades={closedTrades} positions={positions} />;
-            case 'about':
-                return <AboutView />;
-            case 'contact':
-                return <ContactView onFormSubmit={handleFormSubmit} />;
-            case 'admin':
-                return isAdminVisible ? <AdminView submissions={submissions} onMarkAsRead={handleMarkAsRead} /> : <div className="p-6 text-center text-gray-500">Access Denied.</div>;
+                return <StrategyView isBotSimulating={isBotSimulating} onToggleBot={setIsBotSimulating} onAddNotification={addNotification} />;
+            case 'settings':
+                return <SettingsView onAddNotification={addNotification} />;
             default:
-                return <DashboardView history={MOCK_PORTFOLIO_HISTORY} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleManualClosePosition} activityLog={activityLog} onGetSuggestion={handleGetAISuggestion} aiSuggestion={aiSuggestion} />;
+                return <DashboardView history={history} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleManualClosePosition} activityLog={activityLog} onGetSuggestion={handleGetSuggestion} aiSuggestion={aiSuggestion} />;
         }
     };
-
-    const unreadSubmissionsCount = submissions.filter(s => !s.read).length;
 
     return (
         <div className="flex h-screen bg-gray-900 text-gray-100">
-            {showWelcomeModal && <WelcomeModal onAccept={handleAcceptWelcome} />}
-            {showLiveTradingWarning && pendingConnection && <LiveTradingWarningModal onAccept={handleConfirmLiveTrading} onCancel={() => setShowLiveTradingWarning(false)} environment={pendingConnection.environment} />}
-            
-            <NotificationContainer notifications={notifications} onDismiss={removeNotification} />
+            {/* Sidebar */}
+            <aside className="w-64 flex-shrink-0 bg-gray-800/50 p-4 flex flex-col">
+                <div className="flex items-center space-x-2 px-2 mb-8">
+                    <SparklesIcon className="h-8 w-8 text-cyan-400" />
+                    <h1 className="text-2xl font-bold text-white">Xamanix</h1>
+                </div>
+                <nav className="space-y-2">
+                    <NavItem view="dashboard" icon={<DashboardIcon />} label="Dashboard" />
+                    <NavItem view="trade" icon={<TradeIcon />} label="Trade" />
+                    <NavItem view="strategy" icon={<RocketIcon className="h-6 w-6"/>} label="Strategy" />
+                    <NavItem view="settings" icon={<SettingsIcon />} label="Settings" />
+                </nav>
+                <div className="mt-auto p-4 bg-gray-700/30 rounded-lg text-center">
+                    <p className="text-sm font-semibold text-white">AI-Powered Trading</p>
+                    <p className="text-xs text-gray-400 mt-1">Enhance, backtest, and deploy your strategies with Gemini.</p>
+                </div>
+            </aside>
 
-            <Sidebar
-                currentView={view}
-                setView={setView}
-                isAdminVisible={isAdminVisible}
-                onTitleClick={handleTitleClick}
-                positionsCount={positions.length}
-                unreadSubmissionsCount={unreadSubmissionsCount}
-            />
-            <main className="flex-1 flex flex-col min-w-0">
-                {isConnected && environment === 'mainnet' && <LiveBanner />}
-                <DashboardHeader currentView={view} isConnected={isConnected} isBotSimulating={isBotSimulating} />
-                <div className="flex-grow overflow-y-auto">
+            {/* Main Content */}
+            <main className="flex-1 flex flex-col overflow-hidden">
+                <DashboardHeader currentView={currentView} isConnected={isConnected} isBotSimulating={isBotSimulating} />
+                <div className="flex-1 overflow-y-auto bg-gray-900">
                     {renderView()}
                 </div>
             </main>
+            
+            {/* Notifications */}
+            <div className="fixed bottom-0 right-0 p-4 space-y-2">
+                 {notifications.map(n => <NotificationPopup key={n.id} notification={n} onDismiss={dismissNotification} />)}
+            </div>
         </div>
     );
 }
 
-function App() {
-  return (
+// Wrap App in provider
+const AppWrapper = () => (
     <APIProvider>
-      <AppContent />
+        <App />
     </APIProvider>
-  );
-}
+);
 
-export default App;
+export default AppWrapper;
