@@ -1,12 +1,16 @@
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+
+
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification, Order } from './types';
-import { MOCK_PORTFOLIO_HISTORY, MOCK_ASSETS, MOCK_POSITIONS, MOCK_TRADE_VIEW_DATA, DEFAULT_SCRIPT } from './constants';
+// FIX: Import `DEFAULT_SCRIPT` to resolve "Cannot find name 'DEFAULT_SCRIPT'" error.
+import { MOCK_PORTFOLIO_HISTORY, MOCK_ASSETS, MOCK_POSITIONS, MOCK_TRADE_VIEW_DATA, MOCK_INITIAL_ORDERBOOK, DEFAULT_SCRIPT } from './constants';
 import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, PlayIcon, StopIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon, ExclamationTriangleIcon, BellIcon, ExternalLinkIcon, ShieldCheckIcon, LinkIcon } from './components/icons';
 import RecommendationsPanel from './components/RecommendationsPanel';
 import BacktestResults from './components/BacktestResults';
 import CodeViewer from './components/CodeViewer';
 import { analyzeCode, runBacktest, generateEnhancedCode, getTradingSuggestion, generateLiveBotScript } from './services/geminiService';
+import { createWebSocketManager } from './services/websocketService';
 import { APIProvider, useAPI } from './contexts/APIContext';
 import { verifyAndFetchBalances, fetchPositions, executeLiveTrade, closeLivePosition } from './services/bybitService';
 import DashboardHeader from './components/DashboardHeader';
@@ -399,24 +403,27 @@ const DashboardView: React.FC<DashboardViewProps> = ({ history, positions, reali
 };
 
 interface TradeViewProps {
-  data: TradeViewData;
-  onExecuteTrade: (details: { asset: string, direction: 'LONG' | 'SHORT', amountUSD: number, orderType: 'Market' | 'Limit', limitPrice?: string }) => void;
-  isConnected: boolean;
+    tradeViewData: TradeViewData;
+    onExecuteTrade: (details: { asset: string, direction: 'LONG' | 'SHORT', amountUSD: number, orderType: 'Market' | 'Limit', limitPrice?: string }) => void;
+    isConnected: boolean;
+    market: string;
+    setMarket: (market: string) => void;
+    liveOrderBook: { bids: Order[], asks: Order[] };
+    liveTickerPrice: number | null;
 }
 
-const TradeView: React.FC<TradeViewProps> = ({ data, onExecuteTrade, isConnected }) => {
+const TradeView: React.FC<TradeViewProps> = ({ tradeViewData, onExecuteTrade, isConnected, market, setMarket, liveOrderBook, liveTickerPrice }) => {
     const { tradeMethod } = useAPI();
     const chartRef = useRef<HTMLCanvasElement | null>(null);
     const chartInstance = useRef<any | null>(null);
-    const [market, setMarket] = useState(Object.keys(data)[0]);
-    const [orderBook, setOrderBook] = useState<{bids: Order[], asks: Order[]}>({ bids: [], asks: [] });
     const candleFrequencies = ['5m', '15m', '1h', '4h'];
     const [candleFrequency, setCandleFrequency] = useState(candleFrequencies[1]);
-    const marketData = data[market]?.[candleFrequency];
+    const marketData = tradeViewData[market]?.[candleFrequency];
     const [tradeAmount, setTradeAmount] = useState('100');
     const [limitPrice, setLimitPrice] = useState('');
     const [isTrading, setIsTrading] = useState(false);
-
+    
+    // Chart initialization and setup
     useEffect(() => {
         if (!chartRef.current || !marketData) return;
         const ctx = chartRef.current.getContext('2d');
@@ -437,31 +444,12 @@ const TradeView: React.FC<TradeViewProps> = ({ data, onExecuteTrade, isConnected
             }
             return ema;
         };
-        const generateOrderBookData = (currentPrice: number, market: string): { bids: Order[]; asks: Order[] } => {
-            const bids: Order[] = [];
-            const asks: Order[] = [];
-            const levels = 20;
-            let priceStep = 0.5;
-            if (market.includes('ETH')) priceStep = 0.25;
-            if (market.includes('SOL')) priceStep = 0.05;
-            if (market.includes('NGN')) priceStep = 0.00001;
-            for (let i = 1; i <= levels; i++) {
-                const askPrice = currentPrice + (i * priceStep * (1 + (Math.random() - 0.5) * 0.1));
-                const askQuantity = Math.random() * (market.includes('BTC') ? 0.5 : 5);
-                asks.push({ price: askPrice, quantity: askQuantity, total: askPrice * askQuantity });
-                const bidPrice = currentPrice - (i * priceStep * (1 + (Math.random() - 0.5) * 0.1));
-                const bidQuantity = Math.random() * (market.includes('BTC') ? 0.5 : 5);
-                bids.push({ price: bidPrice, quantity: bidQuantity, total: bidPrice * bidQuantity });
-            }
-            return { bids, asks };
-        };
-
+        
         const initialPrices = [...marketData.prices];
         const initialEmaData = calculateEMA(initialPrices, movingAveragePeriod);
-        if (initialPrices.length > 0) {
+        if (initialPrices.length > 0 && !limitPrice) {
             const currentPrice = initialPrices[initialPrices.length - 1];
-            setOrderBook(generateOrderBookData(currentPrice, market));
-            if (!limitPrice) setLimitPrice(currentPrice.toFixed(2));
+            setLimitPrice(currentPrice.toFixed(2));
         }
 
         chartInstance.current = new Chart(ctx, {
@@ -483,7 +471,40 @@ const TradeView: React.FC<TradeViewProps> = ({ data, onExecuteTrade, isConnected
             }
         });
         return () => chartInstance.current?.destroy();
-    }, [marketData, market, limitPrice]);
+    }, [marketData, market]);
+
+    // Live Chart Update Effect
+    useEffect(() => {
+        if (chartInstance.current && liveTickerPrice) {
+            const chart = chartInstance.current;
+            const newLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+            // Keep chart from growing indefinitely
+            if (chart.data.labels.length > 200) {
+                chart.data.labels.shift();
+                chart.data.datasets.forEach((dataset: any) => {
+                    dataset.data.shift();
+                });
+            }
+            
+            chart.data.labels.push(newLabel);
+            chart.data.datasets[0].data.push(liveTickerPrice);
+
+            // Update EMA
+            const prices = chart.data.datasets[0].data;
+            const period = 20;
+            const multiplier = 2 / (period + 1);
+            const lastEma = chart.data.datasets[1].data[chart.data.datasets[1].data.length - 1];
+            if (lastEma !== null) {
+                const newEma = (liveTickerPrice - lastEma) * multiplier + lastEma;
+                chart.data.datasets[1].data.push(newEma);
+            } else {
+                chart.data.datasets[1].data.push(null);
+            }
+            
+            chart.update('quiet');
+        }
+    }, [liveTickerPrice]);
     
     const handleTrade = async (direction: 'LONG' | 'SHORT') => {
         setIsTrading(true);
@@ -506,7 +527,7 @@ const TradeView: React.FC<TradeViewProps> = ({ data, onExecuteTrade, isConnected
                 <Card className="flex-grow flex flex-col min-h-0">
                     <div className="p-4 border-b border-gray-700 flex justify-between items-center flex-shrink-0">
                         <div className="flex items-center space-x-2">
-                           {Object.keys(data).map(m => <PillButton key={m} onClick={() => setMarket(m)} isActive={market === m}>{m}</PillButton>)}
+                           {Object.keys(tradeViewData).map(m => <PillButton key={m} onClick={() => setMarket(m)} isActive={market === m}>{m}</PillButton>)}
                         </div>
                         <div className="flex items-center space-x-1 bg-gray-900/50 rounded-md p-1">
                            {candleFrequencies.map(f => <button key={f} onClick={() => setCandleFrequency(f)} className={`px-2 py-1 text-xs rounded ${candleFrequency === f ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-600'}`}>{f}</button>)}
@@ -532,7 +553,7 @@ const TradeView: React.FC<TradeViewProps> = ({ data, onExecuteTrade, isConnected
                     </div>
                     {!isConnected && <p className="text-xs text-center text-yellow-400">Connect to an exchange in Settings to trade.</p>}
                 </Card>
-                <OrderBook bids={orderBook.bids} asks={orderBook.asks} />
+                <OrderBook bids={liveOrderBook.bids} asks={liveOrderBook.asks} />
             </div>
         </div>
     );
@@ -773,6 +794,14 @@ const MainApp: React.FC = () => {
     const [history, setHistory] = useState<PortfolioHistory>(MOCK_PORTFOLIO_HISTORY);
     const [realizedPnl, setRealizedPnl] = useState(0);
 
+    // Live Data State
+    const wsManagerRef = useRef<ReturnType<typeof createWebSocketManager> | null>(null);
+    const [liveTickers, setLiveTickers] = useState<{ [symbol: string]: number }>({});
+    const [liveOrderBook, setLiveOrderBook] = useState<{ bids: Order[], asks: Order[] }>(MOCK_INITIAL_ORDERBOOK);
+    const [livePositions, setLivePositions] = useState<Position[]>([]);
+    const [tradeViewMarket, setTradeViewMarket] = useState(Object.keys(MOCK_TRADE_VIEW_DATA)[0]);
+
+
     // AI & Bot State
     const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
     const [isBotSimulating, setIsBotSimulating] = useState(false);
@@ -811,6 +840,7 @@ const MainApp: React.FC = () => {
         }
     }, [isConnected, apiKey, apiSecret, environment, addNotification]);
 
+    // REST API polling
     useEffect(() => {
         if (isConnected) {
             addActivityLog('Connected to exchange. Fetching data...', 'info');
@@ -821,7 +851,63 @@ const MainApp: React.FC = () => {
             setAssets([]);
             setPositions([]);
         }
-    }, [isConnected, fetchPortfolioData]);
+    }, [isConnected, fetchPortfolioData, addActivityLog]);
+    
+    // WebSocket connection management
+    useEffect(() => {
+        if (isConnected) {
+            const handleTicker = (data: { symbol: string; price: number; }) => {
+                setLiveTickers(prev => ({ ...prev, [data.symbol]: data.price }));
+            };
+            const handleOrderBook = (data: { bids: Order[]; asks: Order[]; }) => {
+                setLiveOrderBook(data);
+            };
+
+            wsManagerRef.current = createWebSocketManager(environment, handleTicker, handleOrderBook);
+            addActivityLog('Live data connection established.', 'info');
+
+            return () => {
+                wsManagerRef.current?.disconnect();
+                wsManagerRef.current = null;
+                addActivityLog('Live data connection closed.', 'info');
+            };
+        }
+    }, [isConnected, environment, addActivityLog]);
+
+    // WebSocket dynamic subscription management
+    useEffect(() => {
+        if (isConnected && wsManagerRef.current) {
+            const positionSymbols = positions.map(p => p.asset);
+            const allSymbols = new Set(positionSymbols);
+            
+            let orderBookSymbol: string | null = null;
+            if (currentView === 'trade') {
+                allSymbols.add(tradeViewMarket);
+                orderBookSymbol = tradeViewMarket;
+            }
+
+            wsManagerRef.current.updateSubscriptions(Array.from(allSymbols), orderBookSymbol);
+        }
+    }, [isConnected, positions, currentView, tradeViewMarket]);
+
+    // Update positions with live PnL
+    useEffect(() => {
+        if (positions.length === 0 && livePositions.length === 0) return;
+
+        const updatedPositions = positions.map(pos => {
+            const livePrice = liveTickers[pos.asset];
+            if (livePrice) {
+                const directionMultiplier = pos.direction === 'LONG' ? 1 : -1;
+                const newPnl = (livePrice - pos.entryPrice) * pos.size * directionMultiplier;
+                // pnlPercent calculation from bybitService uses margin which we can't easily get here.
+                // We'll update the dollar PnL which is the most important real-time metric.
+                return { ...pos, pnl: newPnl };
+            }
+            return pos;
+        });
+        setLivePositions(updatedPositions);
+    }, [positions, liveTickers]);
+
 
     // Bot Simulation Effect - REFACTORED FOR CORRECTNESS
     useEffect(() => {
@@ -927,15 +1013,15 @@ const MainApp: React.FC = () => {
     const renderView = () => {
         switch (currentView) {
             case 'dashboard':
-                return <DashboardView history={history} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleManualClosePosition} activityLog={activityLog} onGetSuggestion={handleGetSuggestion} aiSuggestion={aiSuggestion} />;
+                return <DashboardView history={history} positions={livePositions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleManualClosePosition} activityLog={activityLog} onGetSuggestion={handleGetSuggestion} aiSuggestion={aiSuggestion} />;
             case 'trade':
-                return <TradeView data={MOCK_TRADE_VIEW_DATA} onExecuteTrade={handleExecuteTrade} isConnected={isConnected} />;
+                return <TradeView tradeViewData={MOCK_TRADE_VIEW_DATA} onExecuteTrade={handleExecuteTrade} isConnected={isConnected} market={tradeViewMarket} setMarket={setTradeViewMarket} liveOrderBook={liveOrderBook} liveTickerPrice={liveTickers[tradeViewMarket] || null} />;
             case 'strategy':
                 return <StrategyView isBotSimulating={isBotSimulating} onToggleBot={setIsBotSimulating} onAddNotification={addNotification} />;
             case 'settings':
                 return <SettingsView onAddNotification={addNotification} />;
             default:
-                return <DashboardView history={history} positions={positions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleManualClosePosition} activityLog={activityLog} onGetSuggestion={handleGetSuggestion} aiSuggestion={aiSuggestion} />;
+                return <DashboardView history={history} positions={livePositions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleManualClosePosition} activityLog={activityLog} onGetSuggestion={handleGetSuggestion} aiSuggestion={aiSuggestion} />;
         }
     };
 

@@ -1,6 +1,7 @@
 
 
-import type { PortfolioHistory, Asset, Position, TradeViewData, PriceData } from './types';
+
+import type { PortfolioHistory, Asset, Position, TradeViewData, PriceData, Order } from './types';
 
 export const MOCK_PORTFOLIO_HISTORY: PortfolioHistory = {
   timestamps: Array.from({ length: 30 }, (_, i) => new Date(Date.now() - (29 - i) * 24 * 60 * 60 * 1000).toISOString()),
@@ -64,6 +65,12 @@ export const MOCK_TRADE_VIEW_DATA: TradeViewData = {
         '4h': generateCandleData(0.00067, 30, 0.009),
     },
 };
+
+export const MOCK_INITIAL_ORDERBOOK: { bids: Order[], asks: Order[] } = {
+    bids: [],
+    asks: []
+};
+
 
 export const DEFAULT_SCRIPT = `
 import pandas as pd
