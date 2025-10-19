@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification, Order } from './types';
 import { MOCK_PORTFOLIO_HISTORY, MOCK_ASSETS, MOCK_POSITIONS, MOCK_TRADE_VIEW_DATA, DEFAULT_SCRIPT } from './constants';
@@ -747,7 +748,7 @@ const SettingsView: React.FC<{
 // MAIN APP COMPONENT
 // ============================================================================
 
-const App: React.FC = () => {
+const MainApp: React.FC = () => {
     const [currentView, setCurrentView] = useState('dashboard');
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const { isConnected, apiKey, apiSecret, environment } = useAPI();
@@ -762,6 +763,7 @@ const App: React.FC = () => {
     const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
     const [isBotSimulating, setIsBotSimulating] = useState(false);
     const [aiSuggestion, setAiSuggestion] = useState({ suggestion: '', isLoading: false, error: null as string | null });
+    const botStartedRef = useRef(false);
 
     const addNotification = useCallback((message: string, type: 'success' | 'error' | 'info') => {
         const icons = {
@@ -807,45 +809,51 @@ const App: React.FC = () => {
         }
     }, [isConnected, fetchPortfolioData]);
 
-    // Bot Simulation Effect
+    // Bot Simulation Effect - REFACTORED FOR CORRECTNESS
     useEffect(() => {
-        // FIX: Changed NodeJS.Timeout to number for browser compatibility.
-        let interval: number | null = null;
-        if (isBotSimulating) {
-            addActivityLog('AI strategy deployment simulation started.', 'info');
-            interval = setInterval(() => {
-                const isLong = Math.random() > 0.5;
-                const pnl = (Math.random() - 0.45) * 50; // Simulate PnL
-                const newTrade: Position = {
-                    id: `sim-${Date.now()}`,
-                    asset: 'BTC/USD',
-                    direction: isLong ? 'LONG' : 'SHORT',
-                    entryPrice: 69000 + (Math.random() - 0.5) * 500,
-                    size: 0.01,
-                    pnl: pnl,
-                    pnlPercent: (pnl / (69000 * 0.01 / 10)) * 100, // Assuming 10x leverage
-                    openTimestamp: new Date().toISOString(),
-                };
-                addActivityLog(`Simulated Trade: New ${newTrade.direction} ${newTrade.asset} position opened.`, 'trade');
-                setPositions(prev => [...prev, newTrade]);
-                
-                // Simulate closing a position
-                if (positions.length > 0 && Math.random() > 0.7) {
-                    const posToClose = positions[0];
-                    setPositions(prev => prev.slice(1));
-                    setRealizedPnl(prev => prev + posToClose.pnl);
-                    addActivityLog(`Simulated Trade: Closed ${posToClose.direction} position for a PnL of $${posToClose.pnl.toFixed(2)}.`, posToClose.pnl >= 0 ? 'profit' : 'loss');
-                }
-            }, 8000);
-        } else {
-             if (activityLog.some(log => log.message.includes('deployment simulation started'))) {
+        if (!isBotSimulating) {
+            if (botStartedRef.current) {
                 addActivityLog('AI strategy deployment simulation stopped.', 'info');
+                botStartedRef.current = false;
             }
+            return;
         }
+
+        addActivityLog('AI strategy deployment simulation started.', 'info');
+        botStartedRef.current = true;
+        
+        const intervalId: number = window.setInterval(() => {
+            const isLong = Math.random() > 0.5;
+            const pnl = (Math.random() - 0.45) * 50;
+            const newTrade: Position = {
+                id: `sim-${Date.now()}`,
+                asset: 'BTC/USD',
+                direction: isLong ? 'LONG' : 'SHORT',
+                entryPrice: 69000 + (Math.random() - 0.5) * 500,
+                size: 0.01,
+                pnl: pnl,
+                pnlPercent: (pnl / (69000 * 0.01 / 10)) * 100, // Assuming 10x leverage
+                openTimestamp: new Date().toISOString(),
+            };
+            addActivityLog(`Simulated Trade: New ${newTrade.direction} ${newTrade.asset} position opened.`, 'trade');
+            setPositions(prev => [...prev, newTrade]);
+            
+            // Simulate closing a position using a functional update to get the latest state
+            setPositions(prevPositions => {
+                if (prevPositions.length > 0 && Math.random() > 0.7) {
+                    const posToClose = prevPositions[0];
+                    setRealizedPnl(prevPnl => prevPnl + posToClose.pnl);
+                    addActivityLog(`Simulated Trade: Closed ${posToClose.direction} position for a PnL of $${posToClose.pnl.toFixed(2)}.`, posToClose.pnl >= 0 ? 'profit' : 'loss');
+                    return prevPositions.slice(1);
+                }
+                return prevPositions;
+            });
+        }, 8000);
+        
         return () => {
-            if (interval) clearInterval(interval);
+            clearInterval(intervalId);
         };
-    }, [isBotSimulating, positions, addActivityLog]);
+    }, [isBotSimulating, addActivityLog]);
 
 
     const handleExecuteTrade = async (details: { asset: string, direction: 'LONG' | 'SHORT', amountUSD: number, orderType: 'Market' | 'Limit', limitPrice?: string }) => {
@@ -953,11 +961,11 @@ const App: React.FC = () => {
     );
 }
 
-// Wrap App in provider
-const AppWrapper = () => (
+// Wrap main app component in provider and rename for clarity
+const App = () => (
     <APIProvider>
-        <App />
+        <MainApp />
     </APIProvider>
 );
 
-export default AppWrapper;
+export default App;

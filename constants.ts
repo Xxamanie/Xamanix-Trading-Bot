@@ -649,8 +649,9 @@ class AdvancedTradingBot:
         """Run complete backtest with all features"""
         print("🚀 Starting Advanced Trading Bot Backtest")
         print(f"📈 Symbol: {self.cfg['symbol']}")
-        print(f"💰 Capital: ${self.cfg['capital']:,.2f}")
-        print("⏳ This may take a few minutes...\n")
+        // FIX: Escape template literal to prevent JS interpretation
+        print(f"💰 Capital: \${self.cfg['capital']:,.2f}")
+        print("⏳ This may take a few minutes...\\n")
         
         # Fetch multi-timeframe data
         data_dict = self.multi_tf.fetch_multi_timeframe_data(self.cfg['symbol'])
@@ -669,9 +670,9 @@ class AdvancedTradingBot:
             print("❌ Insufficient data for backtest")
             return
         
-        print("\n" + "="*60)
+        print("\\n" + "="*60)
         print("🎯 RUNNING BACKTEST WITH ADVANCED FEATURES")
-        print("="*60 + "\n")
+        print("="*60 + "\\n")
         
         position = None
         entry_price = 0.0
@@ -682,7 +683,7 @@ class AdvancedTradingBot:
         test_period = len(signal_df) // 3  # Use last 1/3 for testing
         test_start_idx = len(signal_df) - test_period
         
-        print(f"📊 Backtesting on {test_period} bars\n")
+        print(f"📊 Backtesting on {test_period} bars\\n")
         
         for i in range(test_start_idx, len(signal_df)):
             current_price = signal_df['close'].iloc[i]
@@ -769,7 +770,8 @@ class AdvancedTradingBot:
             max_position_value = self.account_balance * self.cfg['max_portfolio_risk']
             position_size = min(position_size, max_position_value / price)
             
-            print(f"📈 {signal} at ${price:.2f} | Size: {position_size:.2f} | Regime: {regime['regime']}")
+            // FIX: Escape template literal to prevent JS interpretation
+            print(f"📈 {signal} at \${price:.2f} | Size: {position_size:.2f} | Regime: {regime['regime']}")
             return signal, price, position_size
         
         return None
@@ -791,7 +793,8 @@ class AdvancedTradingBot:
                 'type': position
             })
             consecutive_losses = 1 if pnl < 0 else 0
-            print(f"📤 Close {position} at ${current_price:.2f} | P&L: ${pnl:.2f}")
+            // FIX: Escape template literal to prevent JS interpretation
+            print(f"📤 Close {position} at \${current_price:.2f} | P&L: \${pnl:.2f}")
             self.correlation_tracker.remove_position(self.cfg['symbol'])
             return None, consecutive_losses
         
@@ -805,7 +808,8 @@ class AdvancedTradingBot:
                 'type': position
             })
             consecutive_losses = 1 if pnl < 0 else 0
-            print(f"📤 Close {position} at ${current_price:.2f} | P&L: ${pnl:.2f}")
+            // FIX: Escape template literal to prevent JS interpretation
+            print(f"📤 Close {position} at \${current_price:.2f} | P&L: \${pnl:.2f}")
             self.correlation_tracker.remove_position(self.cfg['symbol'])
             return None, consecutive_losses
         
@@ -836,150 +840,4 @@ class AdvancedTradingBot:
             equity_series = pd.Series(self.equity_curve)
             returns = equity_series.pct_change().dropna()
             
-            sharpe = returns.mean() / returns.std() * np.sqrt(252) if returns.std() > 0 else 0
-            rolling_max = equity_series.expanding().max()
-            max_drawdown = (rolling_max - equity_series).max() / rolling_max.max()
-            
-            # Consecutive stats
-            consecutive_wins = 0
-            max_consecutive_wins = 0
-            max_consecutive_losses = 0
-            current_streak = 0
-            
-            for pnl in df_trades['pnl']:
-                if pnl > 0:
-                    current_streak += 1
-                    max_consecutive_wins = max(max_consecutive_wins, current_streak)
-                else:
-                    if current_streak > 0:
-                        max_consecutive_losses = max(max_consecutive_losses, 1)
-                    current_streak = max(current_streak - 1, 0)
-            
-            summary = {
-                "🎯 FINAL RESULTS": {
-                    "Final Equity": f"${final_equity:,.2f}",
-                    "Total Return": f"{total_return:.2%}",
-                    "Starting Capital": f"${self.cfg['capital']:,.2f}"
-                },
-                "📊 TRADE STATISTICS": {
-                    "Total Trades": total_trades,
-                    "Winning Trades": len(wins),
-                    "Losing Trades": len(losses),
-                    "Win Rate": f"{win_rate:.1%}",
-                    "Avg Win": f"${avg_win:.2f}",
-                    "Avg Loss": f"${avg_loss:.2f}",
-                    "Profit Factor": f"{profit_factor:.2f}" if not np.isinf(profit_factor) else "∞"
-                },
-                "⚡ RISK METRICS": {
-                    "Sharpe Ratio": f"{sharpe:.2f}",
-                    "Max Drawdown": f"{max_drawdown:.2%}",
-                    "Max Consecutive Wins": max_consecutive_wins,
-                    "Max Consecutive Losses": max_consecutive_losses
-                },
-                "🤖 ADVANCED FEATURES USED": {
-                    "Multi-Timeframe Analysis": "✅",
-                    "Ensemble Indicators": "✅",
-                    "ML Regime Classification": "✅",
-                    "Adaptive Parameters": "✅",
-                    "Position Correlation Tracking": "✅"
-                }
-            }
-            
-        else:
-            summary = {"Error": "No trades to analyze"}
-        
-        print("\n" + "="*70)
-        print("📈 ADVANCED TRADING BOT - BACKTEST RESULTS")
-        print("="*70)
-        
-        for section, metrics in summary.items():
-            print(f"\n{section}:")
-            for key, value in metrics.items():
-                print(f"  {key:.<40} {value}")
-        
-        print("\n" + "="*70)
-        print(f"✅ Backtest Complete | {len(self.trades)} trades analyzed")
-        print("="*70 + "\n")
-
-# ============================================================================
-# PAPER TRADING SIMULATOR
-# ============================================================================
-class PaperTradingValidator:
-    """Validates strategy with paper trading before real money"""
-    
-    def __init__(self, cfg, bot: AdvancedTradingBot):
-        self.cfg = cfg
-        self.bot = bot
-        self.paper_trades = []
-        
-    def validate_paper_trading(self) -> Dict[str, Any]:
-        """Run paper trading validation"""
-        print("📄 Starting Paper Trading Validation...")
-        print(f"⏱️  Running {self.cfg['paper_trading_period']} of simulated trading\n")
-        
-        # This would run on recent data
-        # For now, return a validation report
-        
-        validation_report = {
-            'status': 'validated',
-            'paper_trades': 0,
-            'paper_win_rate': 0.0,
-            'ready_for_live': False,
-            'recommendation': 'Start with small position sizes'
-        }
-        
-        if len(self.bot.trades) >= self.cfg['min_paper_trades']:
-            recent_trades = self.bot.trades[-self.cfg['min_paper_trades']:]
-            wins = sum(1 for t in recent_trades if t.get('pnl', 0) > 0)
-            
-            validation_report['paper_trades'] = len(recent_trades)
-            validation_report['paper_win_rate'] = wins / len(recent_trades) if recent_trades else 0
-            validation_report['ready_for_live'] = validation_report['paper_win_rate'] > 0.45
-        
-        return validation_report
-
-# ============================================================================
-# MAIN EXECUTION
-# ============================================================================
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Advanced Multi-Timeframe Trading Bot")
-    parser.add_argument("--symbol", type=str, default="AAPL", help="Ticker symbol")
-    parser.add_argument("--capital", type=float, default=10000.0, help="Starting capital")
-    parser.add_argument("--period", type=str, default="2y", help="Historical period")
-    args = parser.parse_args()
-    
-    config = ADVANCED_CFG.copy()
-    config['symbol'] = args.symbol
-    config['capital'] = args.capital
-    
-    print("\n" + "="*70)
-    print("🤖 ADVANCED MULTI-TIMEFRAME TRADING BOT")
-    print("="*70)
-    print(f"Symbol: {args.symbol}")
-    print(f"Capital: ${args.capital:,.2f}")
-    print(f"Features: Multi-TF | Ensemble | ML | Adaptive | Correlation")
-    print("="*70 + "\n")
-    
-    try:
-        bot = AdvancedTradingBot(config)
-        bot.run_full_backtest()
-        
-        # Paper trading validation
-        validator = PaperTradingValidator(config, bot)
-        validation = validator.validate_paper_trading()
-        
-        print("\n" + "="*70)
-        print("📄 PAPER TRADING VALIDATION")
-        print("="*70)
-        print(f"Status: {validation['status']}")
-        print(f"Paper Trades: {validation['paper_trades']}")
-        print(f"Win Rate: {validation['paper_win_rate']:.1%}")
-        print(f"Ready for Live: {'✅ Yes' if validation['ready_for_live'] else '⚠️ Not yet'}")
-        print(f"Recommendation: {validation['recommendation']}")
-        print("="*70 + "\n")
-        
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
-`;
+            sharpe = returns.mean() / returns
