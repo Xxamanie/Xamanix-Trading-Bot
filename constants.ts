@@ -228,7 +228,7 @@ class MarketRegimeMLClassifier:
         self.model.fit(X_train_scaled, y_train)
         
         accuracy = self.model.score(X_test_scaled, y_test)
-        print(f"✅ ML Model trained. Test accuracy: {accuracy:.2%}")
+        print(f"✅ ML Model trained. Test accuracy: \${accuracy:.2%}")
         
         self.needs_retraining = False
         return True
@@ -266,7 +266,7 @@ class MarketRegimeMLClassifier:
                 'volatility_bias': volatility_bias
             }
         except Exception as e:
-            print(f"⚠️  Regime prediction error: {e}")
+            print(f"⚠️  Regime prediction error: \${e}")
             return {'regime': 'neutral', 'regime_code': 0, 'confidence': 0.5, 'volatility_bias': 1.0}
 
 # ============================================================================
@@ -374,7 +374,7 @@ class MultiTimeframeAnalyzer:
                 df = ticker.history(period="2y", interval=tf)
                 
                 if df.empty:
-                    print(f"⚠️  No data for {tf}")
+                    print(f"⚠️  No data for \${tf}")
                     continue
                 
                 # Clean data
@@ -389,12 +389,12 @@ class MultiTimeframeAnalyzer:
                 # Calculate indicators
                 df = self.indicators.calculate_all(df)
                 data[tf] = df
-                print(f"✅ {tf}: {len(df)} bars loaded")
+                print(f"✅ \${tf}: \${len(df)} bars loaded")
                 
                 time.sleep(1)  # Rate limiting
                 
             except Exception as e:
-                print(f"❌ Error fetching {tf}: {e}")
+                print(f"❌ Error fetching \${tf}: \${e}")
         
         return data
     
@@ -648,9 +648,8 @@ class AdvancedTradingBot:
     def run_full_backtest(self):
         """Run complete backtest with all features"""
         print("🚀 Starting Advanced Trading Bot Backtest")
-        print(f"📈 Symbol: {self.cfg['symbol']}")
-        // FIX: Escape template literal to prevent JS interpretation
-        print(f"💰 Capital: \${self.cfg['capital']:,.2f}")
+        print(f"📈 Symbol: \${self.cfg['symbol']}")
+        print(f"💰 Capital: $\${self.cfg['capital']:,.2f}")
         print("⏳ This may take a few minutes...\\n")
         
         # Fetch multi-timeframe data
@@ -683,7 +682,7 @@ class AdvancedTradingBot:
         test_period = len(signal_df) // 3  # Use last 1/3 for testing
         test_start_idx = len(signal_df) - test_period
         
-        print(f"📊 Backtesting on {test_period} bars\\n")
+        print(f"📊 Backtesting on \${test_period} bars\\n")
         
         for i in range(test_start_idx, len(signal_df)):
             current_price = signal_df['close'].iloc[i]
@@ -744,11 +743,11 @@ class AdvancedTradingBot:
         drawdown = (max(self.equity_curve) - self.account_balance) / max(self.equity_curve)
         
         if drawdown > self.cfg['max_drawdown_allowed']:
-            print(f"🛑 Max drawdown exceeded: {drawdown:.2%}")
+            print(f"🛑 Max drawdown exceeded: \${drawdown:.2%}")
             return False
         
         if consecutive_losses > self.cfg['max_consecutive_losses']:
-            print(f"🛑 Too many consecutive losses: {consecutive_losses}")
+            print(f"🛑 Too many consecutive losses: \${consecutive_losses}")
             return False
         
         return True
@@ -770,8 +769,7 @@ class AdvancedTradingBot:
             max_position_value = self.account_balance * self.cfg['max_portfolio_risk']
             position_size = min(position_size, max_position_value / price)
             
-            // FIX: Escape template literal to prevent JS interpretation
-            print(f"📈 {signal} at \${price:.2f} | Size: {position_size:.2f} | Regime: {regime['regime']}")
+            print(f"📈 \${signal} at $\${price:.2f} | Size: \${position_size:.2f} | Regime: \${regime['regime']}")
             return signal, price, position_size
         
         return None
@@ -793,8 +791,7 @@ class AdvancedTradingBot:
                 'type': position
             })
             consecutive_losses = 1 if pnl < 0 else 0
-            // FIX: Escape template literal to prevent JS interpretation
-            print(f"📤 Close {position} at \${current_price:.2f} | P&L: \${pnl:.2f}")
+            print(f"📤 Close \${position} at $\${current_price:.2f} | P&L: $\${pnl:.2f}")
             self.correlation_tracker.remove_position(self.cfg['symbol'])
             return None, consecutive_losses
         
@@ -808,8 +805,7 @@ class AdvancedTradingBot:
                 'type': position
             })
             consecutive_losses = 1 if pnl < 0 else 0
-            // FIX: Escape template literal to prevent JS interpretation
-            print(f"📤 Close {position} at \${current_price:.2f} | P&L: \${pnl:.2f}")
+            print(f"📤 Close \${position} at $\${current_price:.2f} | P&L: $\${pnl:.2f}")
             self.correlation_tracker.remove_position(self.cfg['symbol'])
             return None, consecutive_losses
         
@@ -841,3 +837,4 @@ class AdvancedTradingBot:
             returns = equity_series.pct_change().dropna()
             
             sharpe = returns.mean() / returns
+`}

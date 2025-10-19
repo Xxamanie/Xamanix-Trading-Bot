@@ -1,6 +1,4 @@
 
-
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification, Order } from './types';
 import { MOCK_PORTFOLIO_HISTORY, MOCK_ASSETS, MOCK_POSITIONS, MOCK_TRADE_VIEW_DATA, DEFAULT_SCRIPT } from './constants';
@@ -42,68 +40,84 @@ const Button: React.FC<{ children: React.ReactNode; onClick?: (e: React.MouseEve
   return <button type={type} onClick={onClick} disabled={disabled} className={`${baseClasses} ${variantClasses} ${className}`}>{children}</button>;
 };
 
-const Input: React.FC<{ label: string; type?: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder?: string, leadingAddon?: string; disabled?: boolean; name?: string; }> = ({ label, type = "text", value, onChange, placeholder, leadingAddon, disabled = false, name }) => (
-    <div>
-        <label className="block text-sm font-medium text-gray-400 mb-1">{label}</label>
-        <div className="relative">
-             {leadingAddon && (
-                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                    <span className="text-gray-400 sm:text-sm">{leadingAddon}</span>
-                </div>
-            )}
-            <input
-                type={type}
+const Input: React.FC<{ label: string; id?: string; type?: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder?: string, leadingAddon?: string; disabled?: boolean; name?: string; }> = ({ label, id, type = "text", value, onChange, placeholder, leadingAddon, disabled = false, name }) => {
+    const inputId = id || name || label.toLowerCase().replace(/\s+/g, '-');
+    return (
+        <div>
+            <label htmlFor={inputId} className="block text-sm font-medium text-gray-400 mb-1">{label}</label>
+            <div className="relative">
+                 {leadingAddon && (
+                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                        <span className="text-gray-400 sm:text-sm">{leadingAddon}</span>
+                    </div>
+                )}
+                <input
+                    id={inputId}
+                    type={type}
+                    name={name}
+                    value={value}
+                    onChange={onChange}
+                    placeholder={placeholder}
+                    disabled={disabled}
+                    className={`w-full bg-gray-700 border border-gray-600 rounded-md py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 ${leadingAddon ? 'pl-7' : 'px-3'} disabled:bg-gray-800 disabled:cursor-not-allowed`}
+                />
+            </div>
+        </div>
+    );
+};
+
+const Textarea: React.FC<{ label: string; id?: string; value: string; onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void; placeholder?: string; rows?: number; name?: string; }> = ({ label, id, value, onChange, placeholder, rows = 4, name }) => {
+    const textareaId = id || name || label.toLowerCase().replace(/\s+/g, '-');
+    return (
+        <div>
+            <label htmlFor={textareaId} className="block text-sm font-medium text-gray-400 mb-1">{label}</label>
+            <textarea
+                id={textareaId}
                 name={name}
                 value={value}
                 onChange={onChange}
                 placeholder={placeholder}
-                disabled={disabled}
-                className={`w-full bg-gray-700 border border-gray-600 rounded-md py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 ${leadingAddon ? 'pl-7' : 'px-3'} disabled:bg-gray-800 disabled:cursor-not-allowed`}
+                rows={rows}
+                className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 resize-y"
             />
         </div>
-    </div>
-);
-
-const Textarea: React.FC<{ label: string; value: string; onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void; placeholder?: string; rows?: number; name?: string; }> = ({ label, value, onChange, placeholder, rows = 4, name }) => (
-    <div>
-        <label className="block text-sm font-medium text-gray-400 mb-1">{label}</label>
-        <textarea
-            name={name}
-            value={value}
-            onChange={onChange}
-            placeholder={placeholder}
-            rows={rows}
-            className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 resize-y"
-        />
-    </div>
-);
+    );
+};
 
 const ToggleSwitch: React.FC<{
   label: string;
+  id?: string;
   enabled: boolean;
   onChange: (enabled: boolean) => void;
   disabled?: boolean;
-}> = ({ label, enabled, onChange, disabled = false }) => (
-  <div className="flex items-center justify-between py-2">
-    <span className={`font-medium ${disabled ? 'text-gray-500' : 'text-gray-300'}`}>{label}</span>
-    <button
-      type="button"
-      onClick={() => !disabled && onChange(!enabled)}
-      disabled={disabled}
-      className={`${
-        enabled ? 'bg-cyan-500' : 'bg-gray-600'
-      } relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 focus:ring-offset-gray-800 disabled:opacity-50 disabled:cursor-not-allowed ml-4`}
-      aria-pressed={enabled}
-    >
-      <span
-        aria-hidden="true"
-        className={`${
-          enabled ? 'translate-x-5' : 'translate-x-0'
-        } pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out`}
-      />
-    </button>
-  </div>
-);
+}> = ({ label, id, enabled, onChange, disabled = false }) => {
+    const switchId = id || label.toLowerCase().replace(/\s+/g, '-');
+    return (
+      <div className="flex items-center justify-between py-2">
+        <label htmlFor={switchId} className={`font-medium ${disabled ? 'text-gray-500' : 'text-gray-300'} flex-grow cursor-pointer`}>
+            {label}
+        </label>
+        <button
+          id={switchId}
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          onClick={() => !disabled && onChange(!enabled)}
+          disabled={disabled}
+          className={`${
+            enabled ? 'bg-cyan-500' : 'bg-gray-600'
+          } relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 focus:ring-offset-gray-800 disabled:opacity-50 disabled:cursor-not-allowed ml-4`}
+        >
+          <span
+            aria-hidden="true"
+            className={`${
+              enabled ? 'translate-x-5' : 'translate-x-0'
+            } pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out`}
+          />
+        </button>
+      </div>
+  );
+};
 
 // ============================================================================
 // VIEW SUB-COMPONENTS
