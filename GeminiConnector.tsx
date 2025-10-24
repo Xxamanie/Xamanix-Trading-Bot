@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from "react";
 
+// NOTE: This component connects to the Gemini *Exchange* API, not the Google GenAI API.
+// It is currently not integrated into the main application.
+
 // === Gemini API base ===
 const BASE_URL = "https://api.gemini.com/v1";
 
@@ -8,9 +11,8 @@ const maskKey = (key: string | undefined) =>
   key ? key.slice(0, 4) + "****" + key.slice(-4) : "N/A";
 
 // === Load environment variables ===
-// (Vite automatically injects variables that start with VITE_)
-// FIX: Use process.env for API key, consistent with other services and project guidelines.
-const GEMINI_API_KEY = process.env.API_KEY;
+// FIX: Use a distinct variable for the Gemini Exchange API key to avoid conflict with the Google GenAI key.
+const GEMINI_EXCHANGE_API_KEY = process.env.GEMINI_EXCHANGE_API_KEY;
 
 // === Helper: Safe fetch with retries ===
 async function safeRequest(
@@ -42,9 +44,10 @@ const GeminiConnector: React.FC = () => {
   const [ticker, setTicker] = useState<any>(null);
 
   useEffect(() => {
-    console.log("🔐 Using Gemini API Key:", maskKey(GEMINI_API_KEY));
+    console.log("🔐 Using Gemini Exchange API Key:", maskKey(GEMINI_EXCHANGE_API_KEY));
 
     const fetchTicker = async () => {
+      // Public endpoints on the exchange do not require an API key for the request itself.
       const data = await safeRequest("pubticker/btcusd");
       setTicker(data);
     };

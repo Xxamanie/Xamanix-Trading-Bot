@@ -20,9 +20,9 @@ export const MOCK_ASSETS: Asset[] = [
 ];
 
 export const MOCK_POSITIONS: Position[] = [
-  { id: '1', asset: 'BTC/USD', direction: 'LONG', entryPrice: 68500, size: 0.02, pnl: 120.50, pnlPercent: 8.8, openTimestamp: new Date(Date.now() - 3600000).toISOString(), seen: false },
-  { id: '2', asset: 'ETH/USD', direction: 'LONG', entryPrice: 3600, size: 0.3, pnl: 85.23, pnlPercent: 7.9, openTimestamp: new Date(Date.now() - 7200000).toISOString(), seen: false },
-  { id: '3', asset: 'SOL/USD', direction: 'SHORT', entryPrice: 165, size: 5, pnl: -25.50, pnlPercent: -3.1, openTimestamp: new Date(Date.now() - 1800000).toISOString(), seen: false },
+  { id: 'BTC/USD-LONG', asset: 'BTC/USD', direction: 'LONG', entryPrice: 68500, size: 0.02, pnl: 120.50, pnlPercent: 8.8, openTimestamp: new Date(Date.now() - 3600000).toISOString(), seen: false },
+  { id: 'ETH/USD-LONG', asset: 'ETH/USD', direction: 'LONG', entryPrice: 3600, size: 0.3, pnl: 85.23, pnlPercent: 7.9, openTimestamp: new Date(Date.now() - 7200000).toISOString(), seen: false },
+  { id: 'SOL/USD-SHORT', asset: 'SOL/USD', direction: 'SHORT', entryPrice: 165, size: 5, pnl: -25.50, pnlPercent: -3.1, openTimestamp: new Date(Date.now() - 1800000).toISOString(), seen: false },
 ];
 
 const generateCandleData = (basePrice: number, points: number, volatility: number, minutesInterval: number): PriceData => {
@@ -724,8 +724,8 @@ class AdvancedTradingBot:
         """Run complete backtest with all features"""
         print("🚀 Starting Advanced Trading Bot Backtest")
         print(f"📈 Symbol: {self.cfg['symbol']}")
-        # FIX: Corrected invalid Python f-string syntax that was breaking the TS template literal. The '$' was removed.
-        print(f"💰 Capital: {self.cfg['capital']:,.2f}")
+        # FIX: Escaped template literal syntax in Python f-string to prevent JS parsing errors.
+        print(f"💰 Capital: \${self.cfg['capital']:,.2f}")
         print("⏳ This may take a few minutes...\\n")
         
         # Fetch multi-timeframe data
@@ -860,8 +860,8 @@ class AdvancedTradingBot:
         max_position_value = self.account_balance * self.cfg['max_portfolio_risk']
         position_size = min(position_size, max_position_value / price)
         
-        # FIX: Corrected invalid Python f-string syntax that was breaking the TS template literal. The '$' was removed.
-        print(f"📈 ENTER {signal} at {price:.2f} | Size: {position_size:.2f} | SL: {stop_loss_price:.2f} | TP: {take_profit_price:.2f} | Regime: {regime['regime']}")
+        # FIX: Escaped template literal syntax in Python f-string to prevent JS parsing errors.
+        print(f"📈 ENTER \${signal} at \${price:.2f} | Size: \${position_size:.2f} | SL: \${stop_loss_price:.2f} | TP: \${take_profit_price:.2f} | Regime: \${regime['regime']}")
         
         return {
             "type": signal,
@@ -924,8 +924,8 @@ class AdvancedTradingBot:
             
             trade_outcome = -1 if pnl >= 0 else 1  # -1 for win/breakeven, 1 for loss
             
-            # FIX: Corrected invalid Python f-string syntax that was breaking the TS template literal. The '$' was removed.
-            print(f"📤 CLOSE {position['type']} at {current_price:.2f} ({exit_reason}) | P&L: {pnl:.2f}")
+            # FIX: Escaped template literal syntax in Python f-string to prevent JS parsing errors.
+            print(f"📤 CLOSE \${position['type']} at \${current_price:.2f} (\${exit_reason}) | P&L: \${pnl:.2f}")
             self.correlation_tracker.remove_position(self.cfg['symbol'])
             
             # Return None to indicate position is closed, and the trade outcome

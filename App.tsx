@@ -305,19 +305,18 @@ interface DashboardViewProps {
     positions: Position[];
     realizedPnl: number;
     assets: Asset[];
+    totalEquity: number;
     onManualClosePosition: (position: Position) => void;
     activityLog: ActivityLogEntry[];
     onGetSuggestion: () => Promise<void>;
     aiSuggestion: { suggestion: string; isLoading: boolean; error: string | null; };
 }
 
-const DashboardView: React.FC<DashboardViewProps> = ({ history, positions, realizedPnl, assets, onManualClosePosition, ...aiStatusPanelProps }) => {
+const DashboardView: React.FC<DashboardViewProps> = ({ history, positions, realizedPnl, assets, totalEquity, onManualClosePosition, ...aiStatusPanelProps }) => {
     const chartRef = useRef<HTMLCanvasElement | null>(null);
     const chartInstance = useRef<any | null>(null);
 
-    const totalAssetsValue = assets.find(a => a.name === 'USDT')?.usdValue ?? 0;
     const openPnl = positions.reduce((acc, pos) => acc + pos.pnl, 0);
-    const totalValue = totalAssetsValue + openPnl;
 
     useEffect(() => {
         if (!chartRef.current) return;
@@ -361,7 +360,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ history, positions, reali
                     <div className="flex justify-between items-start">
                         <div>
                             <p className="text-sm text-gray-400">Total Portfolio Value</p>
-                            <p className="text-4xl font-bold text-white">${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                            <p className="text-4xl font-bold text-white">${totalEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                         </div>
                         <div className={`text-right ${openPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                             <p className="font-semibold">{openPnl >= 0 ? '+' : ''}{openPnl.toFixed(2)}</p>
@@ -990,6 +989,7 @@ const MainLayout: React.FC = () => {
   // State for Dashboard / Global data
   const [portfolioHistory, setPortfolioHistory] = useState<PortfolioHistory>(MOCK_PORTFOLIO_HISTORY);
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [totalEquity, setTotalEquity] = useState<number>(0);
   const [positions, setPositions] = useState<Position[]>([]);
   const [closedTrades, setClosedTrades] = useState<ClosedTrade[]>([]);
   const [realizedPnl, setRealizedPnl] = useState(0);
@@ -1012,7 +1012,6 @@ const MainLayout: React.FC = () => {
       appliedRecommendations: new Set<string>(),
       backtestResult: null as BacktestResult | null,
   });
-  const [isAnalyzing, setIsAnalyzing] = useState(true); // Analyze on load
   const [isGenerating, setIsGenerating] = useState(false);
   const [isBacktestRunning, setIsBacktestRunning] = useState(false);
   const [backtestError, setBacktestError] = useState<string|null>(null);
@@ -1024,6 +1023,10 @@ const MainLayout: React.FC = () => {
 
   // WebSocket manager
   const wsManager = useRef<ReturnType<typeof createWebSocketManager> | null>(null);
+  
+  // FIX: Moved `useRef` to the top level of the component to follow the Rules of Hooks.
+  // This ref is used to store previous positions to avoid re-triggering the effect unnecessarily.
+  const prevPositionsRef = useRef<Position[]>([]);
 
   const addNotification = useCallback((message: string, type: 'success' | 'error' | 'info') => {
       const icons = {
@@ -1094,11 +1097,14 @@ const MainLayout: React.FC = () => {
       const fetchAllData = async () => {
           if (!isConnected || !apiKey || !apiSecret) return;
           try {
-              const [newAssets, newPositions] = await Promise.all([
+              const [balanceData, newPositions] = await Promise.all([
                   verifyAndFetchBalances(apiKey, apiSecret, environment),
                   fetchPositions(apiKey, apiSecret, environment)
               ]);
-              setAssets(newAssets);
+              
+              setAssets(balanceData.assets);
+              setTotalEquity(balanceData.totalEquity);
+              
               setPositions(prevPositions => {
                   const updatedPositions = [...newPositions];
                   // Carry over 'seen' status from previous state
@@ -1129,8 +1135,6 @@ const MainLayout: React.FC = () => {
   // Effect to process position changes for notifications and logging
     useEffect(() => {
         const prevPositionMap = new Map<string, Position>();
-        // Using a ref to store previous positions to avoid re-triggering the effect
-        const prevPositionsRef = React.useRef<Position[]>([]);
         prevPositionsRef.current.forEach(p => prevPositionMap.set(p.id, p));
 
         const currentPositionMap = new Map<string, Position>();
@@ -1165,8 +1169,9 @@ const MainLayout: React.FC = () => {
 
   const handleConnect = async (apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet') => {
       try {
-          const initialAssets = await verifyAndFetchBalances(apiKey, apiSecret, environment);
+          const { assets: initialAssets, totalEquity: initialEquity } = await verifyAndFetchBalances(apiKey, apiSecret, environment);
           setAssets(initialAssets);
+          setTotalEquity(initialEquity);
           setIsConnected(true);
           addNotification('Successfully connected to Bybit!', 'success');
           addActivityLog('Connected to Bybit API.', 'info');
@@ -1183,6 +1188,7 @@ const MainLayout: React.FC = () => {
       setAssets([]);
       setPositions([]);
       setRealizedPnl(0);
+      setTotalEquity(0);
       setActivityLog([]);
       if (wsManager.current) {
           wsManager.current.disconnect();
@@ -1218,7 +1224,6 @@ const MainLayout: React.FC = () => {
   };
 
   const handleAnalyzeCode = async () => {
-    setIsAnalyzing(true);
     try {
         const result = await analyzeCode(strategyState.originalCode);
         setStrategyState(prevState => ({
@@ -1229,8 +1234,6 @@ const MainLayout: React.FC = () => {
         }));
     } catch (error: any) {
         addNotification(`Code analysis failed: ${error.message}`, 'error');
-    } finally {
-        setIsAnalyzing(false);
     }
   };
 
@@ -1328,6 +1331,7 @@ const MainLayout: React.FC = () => {
                     positions={positions} 
                     realizedPnl={realizedPnl}
                     assets={assets}
+                    totalEquity={totalEquity}
                     onManualClosePosition={handleManualClosePosition}
                     activityLog={activityLog}
                     onGetSuggestion={handleGetAISuggestion}
@@ -1371,6 +1375,7 @@ const MainLayout: React.FC = () => {
                     positions={positions} 
                     realizedPnl={realizedPnl}
                     assets={assets}
+                    totalEquity={totalEquity}
                     onManualClosePosition={handleManualClosePosition}
                     activityLog={activityLog}
                     onGetSuggestion={handleGetAISuggestion}

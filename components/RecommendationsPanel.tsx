@@ -19,6 +19,11 @@ const RecommendationCard: React.FC<{
 }> = ({ rec, isChecked, onToggle }) => {
     const [isExpanded, setIsExpanded] = useState(false);
 
+    // Guard against null or undefined recommendation objects
+    if (!rec) {
+        return null;
+    }
+
     return (
         <div className="bg-gray-700/50 rounded-lg overflow-hidden transition-all duration-300">
             <div className="p-4 flex items-start">
@@ -36,7 +41,7 @@ const RecommendationCard: React.FC<{
                     <label htmlFor={rec.title} className="font-bold text-white cursor-pointer select-none">
                         {rec.title}
                     </label>
-                    <p className="text-gray-400 mt-1">{isExpanded ? rec.description : `${rec.description.substring(0, 100)}...`}</p>
+                    <p className="text-gray-400 mt-1">{isExpanded ? (rec.description || '') : `${(rec.description || '').substring(0, 100)}...`}</p>
                 </div>
                 <button onClick={() => setIsExpanded(!isExpanded)} className="ml-2 p-1 text-gray-400 hover:text-white">
                     {isExpanded ? <ChevronUpIcon/> : <ChevronDownIcon/>}
@@ -44,13 +49,13 @@ const RecommendationCard: React.FC<{
             </div>
             {isExpanded && (
                 <div className="px-4 pb-4 bg-black/20">
-                    <p className="text-sm text-gray-300 mt-2">{rec.description}</p>
+                    <p className="text-sm text-gray-300 mt-2">{rec.description || 'No description available.'}</p>
                     <div className="mt-4 bg-gray-900 rounded-md p-3">
                         <div className="flex items-center text-xs text-cyan-400 font-mono mb-2">
                            <CodeIcon/> <span className="ml-2">Python Code Snippet</span>
                         </div>
                         <pre className="text-xs text-gray-300 whitespace-pre-wrap break-words overflow-x-auto">
-                            <code>{rec.pythonCodeSnippet}</code>
+                            <code>{rec.pythonCodeSnippet || '# No code snippet provided.'}</code>
                         </pre>
                     </div>
                 </div>
@@ -83,25 +88,25 @@ export default function RecommendationsPanel({ analysis, appliedRecommendations,
         <div className="p-4 overflow-y-auto flex-grow">
             {activeTab === 'recommendations' && (
                  <div className="space-y-4">
-                     {analysis.recommendations.map((rec) => (
+                     {(analysis?.recommendations || []).map((rec, index) => (
                         <RecommendationCard
-                            key={rec.title}
+                            key={rec?.title || `rec-${index}`}
                             rec={rec}
-                            isChecked={appliedRecommendations.has(rec.title)}
-                            onToggle={() => onToggleRecommendation(rec.title)}
+                            isChecked={!!rec?.title && appliedRecommendations.has(rec.title)}
+                            onToggle={() => rec?.title && onToggleRecommendation(rec.title)}
                         />
                      ))}
                  </div>
             )}
             {activeTab === 'parameters' && (
                  <div className="space-y-3">
-                     {analysis.parameters.map((param) => (
-                         <div key={param.name} className="bg-gray-700/50 p-3 rounded-md">
+                     {(analysis?.parameters || []).map((param, index) => (
+                         <div key={param?.name || `param-${index}`} className="bg-gray-700/50 p-3 rounded-md">
                              <div className="flex justify-between items-center">
-                                 <p className="font-mono text-cyan-400 text-sm">{param.name}</p>
-                                 <p className="font-mono text-white bg-gray-600 px-2 py-0.5 rounded text-sm">{param.value}</p>
+                                 <p className="font-mono text-cyan-400 text-sm">{param?.name || 'N/A'}</p>
+                                 <p className="font-mono text-white bg-gray-600 px-2 py-0.5 rounded text-sm">{param?.value || 'N/A'}</p>
                              </div>
-                             <p className="text-gray-400 text-sm mt-1.5">{param.description}</p>
+                             <p className="text-gray-400 text-sm mt-1.5">{param?.description || ''}</p>
                          </div>
                      ))}
                  </div>

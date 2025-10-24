@@ -103,7 +103,7 @@ async function makeRequest(
 
 // --- Service Functions ---
 
-export const verifyAndFetchBalances = async (apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet'): Promise<Asset[]> => {
+export const verifyAndFetchBalances = async (apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet'): Promise<{ assets: Asset[], totalEquity: number }> => {
     const result = await makeRequest('GET', '/v5/account/wallet-balance', { accountType: 'UNIFIED' }, apiKey, apiSecret, environment);
     
     if (!result.list || result.list.length === 0) {
@@ -111,13 +111,17 @@ export const verifyAndFetchBalances = async (apiKey: string, apiSecret: string, 
     }
 
     const account = result.list[0];
-    return account.coin.map((coin: any): Asset => ({
+    const assets = account.coin.map((coin: any): Asset => ({
         name: coin.coin,
         total: parseFloat(coin.walletBalance),
         available: parseFloat(coin.availableToWithdraw), // A more accurate representation of available capital
         inOrders: parseFloat(coin.walletBalance) - parseFloat(coin.availableToWithdraw),
         usdValue: parseFloat(coin.usdValue),
     })).sort((a: Asset, b: Asset) => b.usdValue - a.usdValue);
+    
+    const totalEquity = parseFloat(account.totalEquity);
+
+    return { assets, totalEquity };
 };
 
 // This function fetches live positions and maps them to the app's Position type.
