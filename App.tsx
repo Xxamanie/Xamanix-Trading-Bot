@@ -538,6 +538,16 @@ const TradeView: React.FC<TradeViewProps> = ({ tradeViewData, onExecuteTrade, is
                             l: d.low,
                             c: d.close,
                         })),
+                        color: {
+                            up: '#22c55e',      // Tailwind green-500
+                            down: '#ef4444',    // Tailwind red-500
+                            unchanged: '#9ca3af', // Tailwind gray-400
+                        },
+                        borderColor: {
+                            up: '#22c55e',
+                            down: '#ef4444',
+                            unchanged: '#9ca3af',
+                        }
                     },
                     {
                         type: 'line',
@@ -546,8 +556,8 @@ const TradeView: React.FC<TradeViewProps> = ({ tradeViewData, onExecuteTrade, is
                             x: new Date(marketData[index].time).valueOf(),
                             y: value
                         }).filter(p => p !== null),
-                        borderColor: 'rgba(251, 146, 60, 0.7)', // Orange
-                        borderWidth: 1,
+                        borderColor: '#facc15', // Tailwind yellow-400
+                        borderWidth: 2,
                         pointRadius: 0,
                         tension: 0.1,
                     }
@@ -564,12 +574,12 @@ const TradeView: React.FC<TradeViewProps> = ({ tradeViewData, onExecuteTrade, is
                             tooltipFormat: 'PPpp',
                         },
                         ticks: { color: '#9ca3af', maxTicksLimit: 8 },
-                        grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                        grid: { color: '#374151' }
                     },
                     y: {
                         position: 'right',
                         ticks: { color: '#9ca3af', callback: (value: any) => `$${Number(value).toLocaleString()}` },
-                        grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                        grid: { color: '#374151' }
                     }
                 },
                 plugins: {
