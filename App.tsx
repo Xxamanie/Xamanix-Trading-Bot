@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification, Order } from './types';
 // FIX: Import `DEFAULT_SCRIPT` to resolve "Cannot find name 'DEFAULT_SCRIPT'" error.
@@ -972,6 +974,116 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onConnect, onDisconnect }) 
     );
 };
 
+interface WalletViewProps {
+    liveAssets: Asset[];
+    liveTotalEquity: number;
+    isConnected: boolean;
+    environment: 'mainnet' | 'testnet';
+    paperWallet: {
+        totalEquity: number;
+        assets: Asset[];
+    };
+    onResetPaperWallet: () => void;
+}
+
+const WalletView: React.FC<WalletViewProps> = ({ liveAssets, liveTotalEquity, isConnected, environment, paperWallet, onResetPaperWallet }) => {
+    const [activeTab, setActiveTab] = useState<'live' | 'paper'>('live');
+
+    const WalletContent: React.FC<{ assets: Asset[]; totalEquity: number; accountName: string; accountStatus?: React.ReactNode; actions?: React.ReactNode; }> = ({ assets, totalEquity, accountName, accountStatus, actions }) => (
+        <div className="space-y-6">
+            <Card>
+                <div className="p-6">
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <p className="text-sm text-gray-400">{accountName} Total Value</p>
+                            <p className="text-4xl font-bold text-white">${totalEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        </div>
+                        {accountStatus}
+                    </div>
+                    {actions && <div className="mt-4 pt-4 border-t border-gray-700">{actions}</div>}
+                </div>
+            </Card>
+            <Card className="flex-grow flex flex-col min-h-0">
+                <h3 className="text-lg font-semibold text-white p-4 border-b border-gray-700 flex-shrink-0">Asset Balances</h3>
+                <div className="flex-grow overflow-y-auto">
+                    <div className="divide-y divide-gray-700">
+                        <div className="p-4 grid grid-cols-4 gap-4 text-xs font-semibold text-gray-400 sticky top-0 bg-gray-800">
+                            <span>Asset</span>
+                            <span className="text-right">Total</span>
+                            <span className="text-right">Available</span>
+                            <span className="text-right">USD Value</span>
+                        </div>
+                        {assets.length > 0 ? assets.map(asset => (
+                            <div key={asset.name} className="p-4 grid grid-cols-4 items-center gap-4 hover:bg-gray-800/80 transition-colors">
+                                <p className="font-bold">{asset.name}</p>
+                                <p className="text-right font-mono">{asset.total.toFixed(6)}</p>
+                                <p className="text-right font-mono">{asset.available.toFixed(6)}</p>
+                                <p className="text-right font-mono">${asset.usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                            </div>
+                        )) : (
+                            <p className="text-center text-gray-500 py-8">No assets to display.</p>
+                        )}
+                    </div>
+                </div>
+            </Card>
+        </div>
+    );
+
+    return (
+        <div className="p-6 h-full flex flex-col">
+            <div className="border-b border-gray-700 mb-6">
+                <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                    <button onClick={() => setActiveTab('live')} className={`${activeTab === 'live' ? 'border-cyan-400 text-cyan-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'} flex items-center whitespace-nowrap py-3 px-1 border-b-2 font-medium text-lg`}>
+                        <ShieldCheckIcon className="mr-2 h-6 w-6" /> Live Exchange
+                    </button>
+                    <button onClick={() => setActiveTab('paper')} className={`${activeTab === 'paper' ? 'border-cyan-400 text-cyan-400' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'} ml-8 flex items-center whitespace-nowrap py-3 px-1 border-b-2 font-medium text-lg`}>
+                        <WandSparklesIcon className="mr-2 h-6 w-6" /> Paper Wallet
+                    </button>
+                </nav>
+            </div>
+
+            <div className="flex-grow">
+                {activeTab === 'live' && (
+                    isConnected ? (
+                        <WalletContent
+                            assets={liveAssets}
+                            totalEquity={liveTotalEquity}
+                            accountName="Live Exchange"
+                            accountStatus={
+                                <div className={`text-sm font-bold px-3 py-1 rounded-full ${environment === 'mainnet' ? 'bg-red-500/20 text-red-300' : 'bg-green-500/20 text-green-300'}`}>
+                                    {environment.toUpperCase()}
+                                </div>
+                            }
+                        />
+                    ) : (
+                        <div className="text-center py-20">
+                            <p className="text-lg text-gray-400">Not connected to a live exchange.</p>
+                            <p className="text-gray-500 mt-2">Please connect your Bybit account in the Settings tab to view your live wallet.</p>
+                        </div>
+                    )
+                )}
+
+                {activeTab === 'paper' && (
+                    <WalletContent
+                        assets={paperWallet.assets}
+                        totalEquity={paperWallet.totalEquity}
+                        accountName="Paper Trading"
+                        accountStatus={
+                             <div className="text-sm font-bold px-3 py-1 rounded-full bg-cyan-500/20 text-cyan-300">
+                                SIMULATED
+                            </div>
+                        }
+                        actions={
+                            <div className="flex justify-end">
+                                <Button onClick={onResetPaperWallet} variant="secondary">Reset Paper Account</Button>
+                            </div>
+                        }
+                    />
+                )}
+            </div>
+        </div>
+    );
+};
 
 
 // ============================================================================
@@ -1002,6 +1114,18 @@ const MainLayout: React.FC = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const nextNotificationId = useRef(0);
   const seenPositionIds = useRef(new Set<string>());
+  
+  const initialPaperWallet = {
+      totalEquity: 10000,
+      assets: [
+          { name: 'USD', total: 10000, available: 10000, inOrders: 0, usdValue: 10000 },
+          { name: 'BTC', total: 0, available: 0, inOrders: 0, usdValue: 0 },
+          { name: 'ETH', total: 0, available: 0, inOrders: 0, usdValue: 0 },
+          { name: 'SOL', total: 0, available: 0, inOrders: 0, usdValue: 0 },
+      ]
+  };
+  const [paperWallet, setPaperWallet] = useState(initialPaperWallet);
+
 
   // State for Trade View
   const [tradeViewData, setTradeViewData] = useState<TradeViewData>(MOCK_TRADE_VIEW_DATA);
@@ -1051,6 +1175,12 @@ const MainLayout: React.FC = () => {
   const addActivityLog = useCallback((message: string, type: ActivityLogEntry['type']) => {
       setActivityLog(prev => [...prev, { timestamp: new Date().toISOString(), message, type }]);
   }, []);
+  
+  const handleResetPaperWallet = () => {
+    setPaperWallet(initialPaperWallet);
+    addNotification('Paper wallet has been reset.', 'info');
+    addActivityLog('Paper wallet reset to initial state.', 'info');
+  };
 
   // Effect to manage WebSocket connection
   useEffect(() => {
@@ -1353,6 +1483,15 @@ const MainLayout: React.FC = () => {
                     liveTickerPrice={liveTickerPrice}
                     addNotification={addNotification}
                 />;
+      case 'wallet':
+        return <WalletView
+                    liveAssets={assets}
+                    liveTotalEquity={totalEquity}
+                    isConnected={isConnected}
+                    environment={environment}
+                    paperWallet={paperWallet}
+                    onResetPaperWallet={handleResetPaperWallet}
+                />;
       case 'strategy':
         return <StrategyView 
                     strategyState={strategyState}
@@ -1423,6 +1562,7 @@ const Sidebar: React.FC<{
   const navItems = [
     { name: 'dashboard', icon: <DashboardIcon />, label: 'Dashboard' },
     { name: 'trade', icon: <TradeIcon />, label: 'Trade' },
+    { name: 'wallet', icon: <WalletIcon />, label: 'Wallet' },
     { name: 'strategy', icon: <SparklesIcon />, label: 'Strategy' },
     { name: 'backtest', icon: <ChartBarIcon />, label: 'Backtest' },
     { name: 'settings', icon: <SettingsIcon />, label: 'Settings' },
