@@ -539,15 +539,10 @@ const TradeView: React.FC<TradeViewProps> = ({ tradeViewData, onExecuteTrade, is
                             c: d.close,
                         })),
                         color: {
-                            up: '#22c55e',      // Tailwind green-500
-                            down: '#ef4444',    // Tailwind red-500
+                            up: '#16a34a',      // Tailwind green-600, matching LONG button
+                            down: '#dc2626',    // Tailwind red-600, matching SHORT button
                             unchanged: '#9ca3af', // Tailwind gray-400
                         },
-                        borderColor: {
-                            up: '#22c55e',
-                            down: '#ef4444',
-                            unchanged: '#9ca3af',
-                        }
                     },
                     {
                         type: 'line',
