@@ -1,5 +1,3 @@
-
-
 import React from 'react';
 
 export const DashboardIcon = (): React.ReactElement => (
@@ -216,5 +214,17 @@ export const ExternalLinkIcon = ({ className = "h-4 w-4" }: { className?: string
 export const ShieldCheckIcon = ({ className = "h-6 w-6" }: { className?: string }): React.ReactElement => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 20.917L12 23l9-2.083c0-3.767-1.33-7.4-3.618-10.084z" />
+    </svg>
+);
+
+export const WandSparklesIcon = ({ className = "h-5 w-5" }: { className?: string }): React.ReactElement => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.475 2.118A2.25 2.25 0 01.75 18.75V18.75a2.25 2.25 0 012.25-2.25H15M16.5 18.75h-2.25m0-11.177v-.958c0-.568.422-1.043 1.043-1.043h.612m0 0a3 3 0 10-5.58 1.128 2.25 2.25 0 01-2.475 2.118 2.25 2.25 0 01-.582 1.106M16.5 18.75a2.25 2.25 0 01-2.25-2.25V7.5A2.25 2.25 0 0116.5 5.25h.612a2.25 2.25 0 012.25 2.25v3.879M16.5 18.75c.621 0 1.125-.504 1.125-1.125V11.25m0-3.75v-1.5a.75.75 0 00-1.5 0v1.5m0 0a.75.75 0 001.5 0v-1.5a.75.75 0 00-1.5 0v1.5m0 0v.083m0 0a.75.75 0 001.5 0v-.083a.75.75 0 00-1.5 0z" />
+    </svg>
+);
+
+export const SpeakerWaveIcon = ({ className = "h-5 w-5" }: { className?: string }): React.ReactElement => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
     </svg>
 );

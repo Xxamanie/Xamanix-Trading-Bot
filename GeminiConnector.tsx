@@ -9,8 +9,8 @@ const maskKey = (key: string | undefined) =>
 
 // === Load environment variables ===
 // (Vite automatically injects variables that start with VITE_)
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const GEMINI_API_SECRET = import.meta.env.VITE_GEMINI_API_SECRET;
+// FIX: Use process.env for API key, consistent with other services and project guidelines.
+const GEMINI_API_KEY = process.env.API_KEY;
 
 // === Helper: Safe fetch with retries ===
 async function safeRequest(

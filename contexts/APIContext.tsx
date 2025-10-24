@@ -1,4 +1,5 @@
 import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
+import { AVAILABLE_SOUNDS } from '../services/soundService';
 
 interface APIContextType {
   apiKey: string;
@@ -11,6 +12,12 @@ interface APIContextType {
   setEnvironment: (env: 'testnet' | 'mainnet') => void;
   tradeMethod: 'Market' | 'Limit';
   setTradeMethod: (method: 'Market' | 'Limit') => void;
+  soundAlertsEnabled: boolean;
+  setSoundAlertsEnabled: (enabled: boolean) => void;
+  priceAlertThreshold: number;
+  setPriceAlertThreshold: (threshold: number) => void;
+  selectedAlertSound: string;
+  setSelectedAlertSound: (sound: string) => void;
 }
 
 const APIContext = createContext<APIContextType | undefined>(undefined);
@@ -22,7 +29,9 @@ export const APIProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isConnected, setIsConnected] = useState<boolean>(() => localStorage.getItem('xamanix-isConnected') === 'true');
   const [environment, setEnvironment] = useState<'testnet' | 'mainnet'>(() => (localStorage.getItem('xamanix-environment') as 'testnet' | 'mainnet') || 'testnet');
   const [tradeMethod, setTradeMethod] = useState<'Market' | 'Limit'>(() => (localStorage.getItem('xamanix-tradeMethod') as 'Market' | 'Limit') || 'Market');
-
+  const [soundAlertsEnabled, setSoundAlertsEnabled] = useState<boolean>(() => localStorage.getItem('xamanix-soundAlertsEnabled') === 'true');
+  const [priceAlertThreshold, setPriceAlertThreshold] = useState<number>(() => parseFloat(localStorage.getItem('xamanix-priceAlertThreshold') || '1'));
+  const [selectedAlertSound, setSelectedAlertSound] = useState<string>(() => localStorage.getItem('xamanix-selectedAlertSound') || AVAILABLE_SOUNDS[0].url);
 
   // Persist state changes to localStorage
   useEffect(() => {
@@ -64,9 +73,32 @@ export const APIProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       console.error("Failed to save trade method to localStorage", e);
     }
   }, [tradeMethod]);
+  
+  useEffect(() => {
+    localStorage.setItem('xamanix-soundAlertsEnabled', String(soundAlertsEnabled));
+  }, [soundAlertsEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem('xamanix-priceAlertThreshold', String(priceAlertThreshold));
+  }, [priceAlertThreshold]);
+
+  useEffect(() => {
+    localStorage.setItem('xamanix-selectedAlertSound', selectedAlertSound);
+  }, [selectedAlertSound]);
+
+  const value = {
+    apiKey, setApiKey,
+    apiSecret, setApiSecret,
+    isConnected, setIsConnected,
+    environment, setEnvironment,
+    tradeMethod, setTradeMethod,
+    soundAlertsEnabled, setSoundAlertsEnabled,
+    priceAlertThreshold, setPriceAlertThreshold,
+    selectedAlertSound, setSelectedAlertSound
+  };
 
   return (
-    <APIContext.Provider value={{ apiKey, setApiKey, apiSecret, setApiSecret, isConnected, setIsConnected, environment, setEnvironment, tradeMethod, setTradeMethod }}>
+    <APIContext.Provider value={value}>
       {children}
     </APIContext.Provider>
   );

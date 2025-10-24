@@ -38,10 +38,15 @@ export interface PortfolioHistory {
   equity: number[];
 }
 
-export interface PriceData {
-    timestamps: string[];
-    prices: number[];
+export interface Candle {
+    time: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
 }
+
+export type PriceData = Candle[];
 
 export interface TradeViewData {
     [market: string]: {

@@ -1,19 +1,19 @@
 
 
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification, Order } from './types';
 // FIX: Import `DEFAULT_SCRIPT` to resolve "Cannot find name 'DEFAULT_SCRIPT'" error.
 import { MOCK_PORTFOLIO_HISTORY, MOCK_ASSETS, MOCK_POSITIONS, MOCK_TRADE_VIEW_DATA, MOCK_INITIAL_ORDERBOOK, DEFAULT_SCRIPT } from './constants';
-import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, PlayIcon, StopIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon, ExclamationTriangleIcon, BellIcon, ExternalLinkIcon, ShieldCheckIcon, LinkIcon } from './components/icons';
+import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, PlayIcon, StopIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon, ExclamationTriangleIcon, BellIcon, ExternalLinkIcon, ShieldCheckIcon, LinkIcon, WandSparklesIcon, SpeakerWaveIcon } from './components/icons';
 import RecommendationsPanel from './components/RecommendationsPanel';
 import BacktestResults from './components/BacktestResults';
 import CodeViewer from './components/CodeViewer';
-import { analyzeCode, runBacktest, generateEnhancedCode, getTradingSuggestion, generateLiveBotScript } from './services/geminiService';
+import { analyzeCode, runBacktest, generateEnhancedCode, getTradingSuggestion, generateLiveBotScript, formatCode } from './services/geminiService';
 import { createWebSocketManager } from './services/websocketService';
 import { APIProvider, useAPI } from './contexts/APIContext';
 import { verifyAndFetchBalances, fetchPositions, executeLiveTrade, closeLivePosition } from './services/bybitService';
 import DashboardHeader from './components/DashboardHeader';
+import { playSound, AVAILABLE_SOUNDS } from './services/soundService';
 
 
 // @ts-ignore - Chart is loaded from a script tag in index.html
@@ -44,7 +44,7 @@ const Button: React.FC<{ children: React.ReactNode; onClick?: (e: React.MouseEve
   return <button type={type} onClick={onClick} disabled={disabled} className={`${baseClasses} ${variantClasses} ${className}`}>{children}</button>;
 };
 
-const Input: React.FC<{ label: string; id?: string; type?: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder?: string, leadingAddon?: string; disabled?: boolean; name?: string; }> = ({ label, id, type = "text", value, onChange, placeholder, leadingAddon, disabled = false, name }) => {
+const Input: React.FC<{ label: string; id?: string; type?: string; value: string | number; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder?: string, leadingAddon?: string; disabled?: boolean; name?: string; step?: string; min?: string; }> = ({ label, id, type = "text", value, onChange, placeholder, leadingAddon, disabled = false, name, step, min }) => {
     const inputId = id || name || label.toLowerCase().replace(/\s+/g, '-');
     return (
         <div>
@@ -63,6 +63,8 @@ const Input: React.FC<{ label: string; id?: string; type?: string; value: string
                     onChange={onChange}
                     placeholder={placeholder}
                     disabled={disabled}
+                    step={step}
+                    min={min}
                     className={`w-full bg-gray-700 border border-gray-600 rounded-md py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 ${leadingAddon ? 'pl-7' : 'px-3'} disabled:bg-gray-800 disabled:cursor-not-allowed`}
                 />
             </div>
@@ -207,8 +209,8 @@ const PillButton: React.FC<{ onClick: () => void, isActive: boolean, children: R
 );
 
 const OrderBook: React.FC<{ bids: Order[]; asks: Order[]; }> = ({ bids, asks }) => {
-    const allTotals = [...bids.map(o => o.quantity), ...asks.map(o => o.quantity)];
-    const maxTotal = allTotals.length > 0 ? Math.max(...allTotals) : 0;
+    const allQuantities = [...bids.map(o => o.quantity), ...asks.map(o => o.quantity)];
+    const maxQuantity = allQuantities.length > 0 ? Math.max(...allQuantities) : 0;
 
     const OrderColumn: React.FC<{ orders: Order[]; type: 'bid' | 'ask'; }> = ({ orders, type }) => (
         <div>
@@ -219,9 +221,9 @@ const OrderBook: React.FC<{ bids: Order[]; asks: Order[]; }> = ({ bids, asks }) 
             <div className="space-y-0.5">
                 {orders.map((order, i) => (
                     <div key={i} className="relative flex justify-between text-xs font-mono px-2 py-0.5 hover:bg-gray-700/50 cursor-pointer">
-                        <div 
+                        <div
                             className={`absolute top-0 bottom-0 ${type === 'bid' ? 'right-0 bg-green-500/15' : 'left-0 bg-red-500/15'}`}
-                            style={{ width: `${maxTotal > 0 ? (order.quantity / maxTotal) * 100 : 0}%` }}
+                            style={{ width: `${maxQuantity > 0 ? (order.quantity / maxQuantity) * 100 : 0}%` }}
                         />
                         <span className={type === 'bid' ? 'text-green-400' : 'text-red-400'}>{order.price.toFixed(2)}</span>
                         <span className="text-gray-300">{order.quantity.toFixed(4)}</span>
@@ -230,20 +232,38 @@ const OrderBook: React.FC<{ bids: Order[]; asks: Order[]; }> = ({ bids, asks }) 
             </div>
         </div>
     );
-    
-    const sortedAsks = [...asks].sort((a, b) => b.price - a.price);
+
+    // Sort asks ascending (lowest price first) to correctly display the order book.
+    const sortedAsks = [...asks].sort((a, b) => a.price - b.price);
+    // Sort bids descending (highest price first).
     const sortedBids = [...bids].sort((a, b) => b.price - a.price);
+
+    // Calculate the spread between the best bid and best ask.
+    const bestBid = sortedBids.length > 0 ? sortedBids[0].price : 0;
+    const bestAsk = sortedAsks.length > 0 ? sortedAsks[0].price : 0;
+    const spread = (bestAsk > 0 && bestBid > 0) ? bestAsk - bestBid : 0;
 
     return (
         <Card className="p-0 flex-grow flex flex-col min-h-0">
-            <h3 className="text-md font-semibold text-white p-3 border-b border-gray-700 flex-shrink-0">Order Book</h3>
+             {/* Header now includes an explicit spread display. */}
+            <div className="flex justify-between items-center p-3 border-b border-gray-700 flex-shrink-0">
+                <h3 className="text-md font-semibold text-white">Order Book</h3>
+                 {spread > 0 && (
+                    <div className="text-right">
+                        <span className="text-xs text-gray-400">Spread</span>
+                        <p className="text-sm font-mono text-white">{spread.toFixed(2)}</p>
+                    </div>
+                 )}
+            </div>
             <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-4 p-2 overflow-y-auto">
                 <OrderColumn orders={sortedBids.slice(0, 15)} type="bid" />
-                <OrderColumn orders={sortedAsks.slice(0, 15)} type="ask" />
+                 {/* Reverse the asks so the best price (lowest) is at the bottom, near the bids */}
+                <OrderColumn orders={sortedAsks.slice(0, 15).reverse()} type="ask" />
             </div>
         </Card>
     );
 };
+
 
 const NotificationPopup: React.FC<{ notification: Notification; onDismiss: (id: number) => void; }> = ({ notification, onDismiss }) => {
     useEffect(() => {
@@ -404,16 +424,24 @@ const DashboardView: React.FC<DashboardViewProps> = ({ history, positions, reali
 
 interface TradeViewProps {
     tradeViewData: TradeViewData;
-    onExecuteTrade: (details: { asset: string, direction: 'LONG' | 'SHORT', amountUSD: number, orderType: 'Market' | 'Limit', limitPrice?: string }) => void;
+    onExecuteTrade: (details: { 
+        asset: string, 
+        direction: 'LONG' | 'SHORT', 
+        amountUSD: number, 
+        orderType: 'Market' | 'Limit', 
+        limitPrice?: string,
+        takeProfit?: { type: 'Price' | 'Percentage', value: string }
+    }) => void;
     isConnected: boolean;
     market: string;
     setMarket: (market: string) => void;
     liveOrderBook: { bids: Order[], asks: Order[] };
     liveTickerPrice: number | null;
+    addNotification: (message: string, type: 'success' | 'error' | 'info') => void;
 }
 
-const TradeView: React.FC<TradeViewProps> = ({ tradeViewData, onExecuteTrade, isConnected, market, setMarket, liveOrderBook, liveTickerPrice }) => {
-    const { tradeMethod } = useAPI();
+const TradeView: React.FC<TradeViewProps> = ({ tradeViewData, onExecuteTrade, isConnected, market, setMarket, liveOrderBook, liveTickerPrice, addNotification }) => {
+    const { tradeMethod, soundAlertsEnabled, priceAlertThreshold, selectedAlertSound } = useAPI();
     const chartRef = useRef<HTMLCanvasElement | null>(null);
     const chartInstance = useRef<any | null>(null);
     const candleFrequencies = ['5m', '15m', '1h', '4h'];
@@ -421,8 +449,59 @@ const TradeView: React.FC<TradeViewProps> = ({ tradeViewData, onExecuteTrade, is
     const marketData = tradeViewData[market]?.[candleFrequency];
     const [tradeAmount, setTradeAmount] = useState('100');
     const [limitPrice, setLimitPrice] = useState('');
+    const [tpType, setTpType] = useState<'Price' | 'Percentage'>('Price');
+    const [tpValue, setTpValue] = useState('');
     const [isTrading, setIsTrading] = useState(false);
     
+    // Refs for price alert logic
+    const priceHistory = useRef<{price: number, time: number}[]>([]);
+    const lastAlertTimestamp = useRef<number>(0);
+    const ALERT_COOLDOWN = 60 * 1000; // 1 minute
+    const PRICE_HISTORY_WINDOW = 30 * 1000; // 30 seconds
+
+    useEffect(() => {
+        // Reset price history when market changes
+        priceHistory.current = [];
+        lastAlertTimestamp.current = 0;
+    }, [market]);
+
+    // Effect for handling price movement alerts
+    useEffect(() => {
+        if (!liveTickerPrice || !soundAlertsEnabled) return;
+        
+        const now = Date.now();
+        
+        // Check cooldown
+        if (now - lastAlertTimestamp.current < ALERT_COOLDOWN) {
+            return;
+        }
+
+        // Add current price to history
+        priceHistory.current.push({ price: liveTickerPrice, time: now });
+        
+        // Filter out old prices
+        priceHistory.current = priceHistory.current.filter(p => now - p.time <= PRICE_HISTORY_WINDOW);
+        
+        if (priceHistory.current.length < 5) return; // Need a few data points to measure
+
+        const pricesInWindow = priceHistory.current.map(p => p.price);
+        const minPrice = Math.min(...pricesInWindow);
+        const maxPrice = Math.max(...pricesInWindow);
+        
+        if (minPrice > 0) {
+            const pctChange = ((maxPrice - minPrice) / minPrice) * 100;
+
+            if (pctChange >= priceAlertThreshold) {
+                const message = `${market} price moved ${pctChange.toFixed(2)}% in the last 30 seconds.`;
+                addNotification(message, 'info');
+                playSound(selectedAlertSound);
+                lastAlertTimestamp.current = now; // Set cooldown
+                priceHistory.current = []; // Clear history to prevent immediate re-trigger
+            }
+        }
+
+    }, [liveTickerPrice, soundAlertsEnabled, priceAlertThreshold, selectedAlertSound, addNotification, market]);
+
     // Chart initialization and setup
     useEffect(() => {
         if (!chartRef.current || !marketData) return;
@@ -434,78 +513,92 @@ const TradeView: React.FC<TradeViewProps> = ({ tradeViewData, onExecuteTrade, is
         const calculateEMA = (data: number[], period: number): (number | null)[] => {
             if (data.length < period) return Array(data.length).fill(null);
             const multiplier = 2 / (period + 1);
-            const ema: (number | null)[] = Array(period - 1).fill(null);
-            let previousEma = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
-            ema.push(previousEma);
+            const ema: (number | null)[] = Array(data.length).fill(null);
+            let sum = 0;
+            for (let i = 0; i < period; i++) sum += data[i];
+            ema[period - 1] = sum / period;
             for (let i = period; i < data.length; i++) {
-                const newEma = (data[i] - previousEma) * multiplier + previousEma;
-                ema.push(newEma);
-                previousEma = newEma;
+                ema[i] = (data[i] - (ema[i - 1] as number)) * multiplier + (ema[i - 1] as number);
             }
             return ema;
         };
         
-        const initialPrices = [...marketData.prices];
-        const initialEmaData = calculateEMA(initialPrices, movingAveragePeriod);
-        if (initialPrices.length > 0 && !limitPrice) {
-            const currentPrice = initialPrices[initialPrices.length - 1];
-            setLimitPrice(currentPrice.toFixed(2));
-        }
+        const closePrices = marketData.map(d => d.close);
+        const emaData = calculateEMA(closePrices, movingAveragePeriod);
 
         chartInstance.current = new Chart(ctx, {
-            type: 'line',
+            type: 'candlestick',
             data: {
-                labels: marketData.timestamps.map(t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
                 datasets: [
-                    { label: 'Price', data: initialPrices, borderColor: 'rgb(34, 211, 238)', borderWidth: 2, pointRadius: 0, tension: 0.1 },
-                    { label: `EMA(${movingAveragePeriod})`, data: initialEmaData, borderColor: 'rgb(250, 204, 21)', borderWidth: 1.5, pointRadius: 0, borderDash: [5, 5], tension: 0.1 },
+                    {
+                        label: `${market} Price`,
+                        data: marketData.map(d => ({
+                            x: new Date(d.time).valueOf(),
+                            o: d.open,
+                            h: d.high,
+                            l: d.low,
+                            c: d.close,
+                        })),
+                    },
+                    {
+                        type: 'line',
+                        label: `EMA(${movingAveragePeriod})`,
+                        data: emaData.map((value, index) => value === null ? null : {
+                            x: new Date(marketData[index].time).valueOf(),
+                            y: value
+                        }).filter(p => p !== null),
+                        borderColor: 'rgba(251, 146, 60, 0.7)', // Orange
+                        borderWidth: 1,
+                        pointRadius: 0,
+                        tension: 0.1,
+                    }
                 ]
             },
             options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: true, position: 'top', labels: { color: '#d1d5db' } } },
+                responsive: true,
+                maintainAspectRatio: false,
                 scales: {
-                    x: { ticks: { color: '#9ca3af', maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }, grid: { color: 'rgba(255, 255, 255, 0.1)' } },
-                    y: { position: 'right', ticks: { color: '#9ca3af' }, grid: { color: 'rgba(255, 255, 255, 0.1)' } }
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'hour',
+                            tooltipFormat: 'PPpp',
+                        },
+                        ticks: { color: '#9ca3af', maxTicksLimit: 8 },
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                    },
+                    y: {
+                        position: 'right',
+                        ticks: { color: '#9ca3af', callback: (value: any) => `$${Number(value).toLocaleString()}` },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            color: '#d1d5db'
+                        }
+                    },
+                    zoom: {
+                        pan: {
+                            enabled: true,
+                            mode: 'x',
+                        },
+                        zoom: {
+                            wheel: { enabled: true },
+                            pinch: { enabled: true },
+                            mode: 'x',
+                        }
+                    }
                 }
             }
         });
         return () => chartInstance.current?.destroy();
     }, [marketData, market]);
 
-    // Live Chart Update Effect
-    useEffect(() => {
-        if (chartInstance.current && liveTickerPrice) {
-            const chart = chartInstance.current;
-            const newLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-            // Keep chart from growing indefinitely
-            if (chart.data.labels.length > 200) {
-                chart.data.labels.shift();
-                chart.data.datasets.forEach((dataset: any) => {
-                    dataset.data.shift();
-                });
-            }
-            
-            chart.data.labels.push(newLabel);
-            chart.data.datasets[0].data.push(liveTickerPrice);
-
-            // Update EMA
-            const prices = chart.data.datasets[0].data;
-            const period = 20;
-            const multiplier = 2 / (period + 1);
-            const lastEma = chart.data.datasets[1].data[chart.data.datasets[1].data.length - 1];
-            if (lastEma !== null) {
-                const newEma = (liveTickerPrice - lastEma) * multiplier + lastEma;
-                chart.data.datasets[1].data.push(newEma);
-            } else {
-                chart.data.datasets[1].data.push(null);
-            }
-            
-            chart.update('quiet');
-        }
-    }, [liveTickerPrice]);
-    
     const handleTrade = async (direction: 'LONG' | 'SHORT') => {
         setIsTrading(true);
         try {
@@ -514,558 +607,844 @@ const TradeView: React.FC<TradeViewProps> = ({ tradeViewData, onExecuteTrade, is
                 direction,
                 amountUSD: parseFloat(tradeAmount),
                 orderType: tradeMethod,
-                limitPrice: tradeMethod === 'Limit' ? limitPrice : undefined,
+                limitPrice: limitPrice,
+                takeProfit: {
+                    type: tpType,
+                    value: tpValue,
+                }
             });
         } finally {
             setIsTrading(false);
         }
     };
+    
+    const latestPrice = marketData?.[marketData.length - 1]?.close ?? 0;
+    const currentPrice = liveTickerPrice ?? latestPrice;
 
     return (
         <div className="p-6 flex gap-6 h-full">
             <div className="w-2/3 flex flex-col gap-6">
                 <Card className="flex-grow flex flex-col min-h-0">
                     <div className="p-4 border-b border-gray-700 flex justify-between items-center flex-shrink-0">
-                        <div className="flex items-center space-x-2">
-                           {Object.keys(tradeViewData).map(m => <PillButton key={m} onClick={() => setMarket(m)} isActive={market === m}>{m}</PillButton>)}
+                        <div>
+                             <h3 className="text-xl font-bold text-white">{market}</h3>
+                             <p className={`text-lg font-mono ${liveTickerPrice ? 'text-cyan-400' : 'text-gray-400'}`}>{currentPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
                         </div>
-                        <div className="flex items-center space-x-1 bg-gray-900/50 rounded-md p-1">
-                           {candleFrequencies.map(f => <button key={f} onClick={() => setCandleFrequency(f)} className={`px-2 py-1 text-xs rounded ${candleFrequency === f ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-600'}`}>{f}</button>)}
+                        <div className="flex space-x-2">
+                             {Object.keys(tradeViewData).map(m => <PillButton key={m} onClick={() => setMarket(m)} isActive={market === m}>{m}</PillButton>)}
+                        </div>
+                         <div className="flex space-x-2">
+                             {candleFrequencies.map(cf => <PillButton key={cf} onClick={() => setCandleFrequency(cf)} isActive={candleFrequency === cf}>{cf}</PillButton>)}
                         </div>
                     </div>
-                    <div className="flex-grow p-4 relative"><canvas ref={chartRef}></canvas></div>
+                    <div className="flex-grow p-4 relative min-h-[300px]">
+                         <canvas ref={chartRef}></canvas>
+                    </div>
                 </Card>
+                <div className="h-1/3 flex-grow min-h-[200px]">
+                   <OrderBook bids={liveOrderBook.bids} asks={liveOrderBook.asks} />
+                </div>
             </div>
+
             <div className="w-1/3 flex flex-col gap-6">
-                <Card className="p-4 space-y-4">
-                    <h3 className="text-lg font-semibold text-white">Manual Trade</h3>
-                    <Input label="Trade Amount" type="number" value={tradeAmount} onChange={e => setTradeAmount(e.target.value)} leadingAddon="$" disabled={!isConnected || isTrading} />
-                    {tradeMethod === 'Limit' && (
-                        <Input label="Limit Price" type="number" value={limitPrice} onChange={e => setLimitPrice(e.target.value)} leadingAddon="$" disabled={!isConnected || isTrading} />
-                    )}
-                    <div className="grid grid-cols-2 gap-4">
-                        <Button onClick={() => handleTrade('LONG')} disabled={!isConnected || isTrading} className="!py-3 !bg-green-600 hover:!bg-green-700 disabled:!bg-green-600/50 flex items-center justify-center">
-                            {isTrading ? <LoadingIcon /> : <ArrowTrendingUpIcon className="w-5 h-5"/>}<span className="ml-2">Long</span>
-                        </Button>
-                        <Button onClick={() => handleTrade('SHORT')} disabled={!isConnected || isTrading} className="!py-3 !bg-red-600 hover:!bg-red-700 disabled:!bg-red-600/50 flex items-center justify-center">
-                            {isTrading ? <LoadingIcon /> : <ArrowTrendingUpIcon className="w-5 h-5 transform rotate-180"/>}<span className="ml-2">Short</span>
-                        </Button>
-                    </div>
-                    {!isConnected && <p className="text-xs text-center text-yellow-400">Connect to an exchange in Settings to trade.</p>}
+                <Card className="p-6">
+                    <h3 className="text-lg font-semibold text-white mb-4">Manual Trade</h3>
+                     <div className="space-y-4">
+                        <Input 
+                            label="Amount (USD)"
+                            value={tradeAmount}
+                            onChange={(e) => setTradeAmount(e.target.value)}
+                            type="number"
+                            leadingAddon="$"
+                            disabled={!isConnected}
+                         />
+                        {tradeMethod === 'Limit' && (
+                             <Input 
+                                label="Limit Price (USD)"
+                                value={limitPrice}
+                                onChange={(e) => setLimitPrice(e.target.value)}
+                                type="number"
+                                disabled={!isConnected}
+                             />
+                        )}
+                        <div className="flex items-end gap-2">
+                            <div className="flex-grow">
+                                <Input
+                                    label="Take Profit"
+                                    value={tpValue}
+                                    onChange={(e) => setTpValue(e.target.value)}
+                                    type="number"
+                                    leadingAddon={tpType === 'Price' ? '$' : '%'}
+                                    disabled={!isConnected}
+                                    placeholder="Optional"
+                                />
+                            </div>
+                            <div className="flex-shrink-0 mb-px">
+                                <div className="flex rounded-md shadow-sm -space-x-px" role="group">
+                                    <button
+                                        type="button"
+                                        onClick={() => setTpType('Price')}
+                                        className={`px-3 py-2 text-xs font-medium ${tpType === 'Price' ? 'bg-cyan-600 text-white ring-1 ring-inset ring-cyan-500' : 'bg-gray-600 text-gray-300'} rounded-l-md hover:bg-cyan-700 focus:z-10`}
+                                    >
+                                        Price
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setTpType('Percentage')}
+                                        className={`px-3 py-2 text-xs font-medium ${tpType === 'Percentage' ? 'bg-cyan-600 text-white ring-1 ring-inset ring-cyan-500' : 'bg-gray-600 text-gray-300'} rounded-r-md hover:bg-cyan-700 focus:z-10`}
+                                    >
+                                        Percent
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 pt-2">
+                            <Button 
+                                onClick={() => handleTrade('LONG')}
+                                disabled={!isConnected || isTrading}
+                                className="!py-3 !bg-green-600 hover:!bg-green-700 focus:!ring-green-500"
+                            >
+                                LONG
+                            </Button>
+                            <Button 
+                                onClick={() => handleTrade('SHORT')}
+                                disabled={!isConnected || isTrading}
+                                className="!py-3 !bg-red-600 hover:!bg-red-700 focus:!ring-red-500"
+                            >
+                                SHORT
+                            </Button>
+                        </div>
+                         {!isConnected && <p className="text-xs text-center text-yellow-400">Connect to an exchange in Settings to trade.</p>}
+                     </div>
                 </Card>
-                <OrderBook bids={liveOrderBook.bids} asks={liveOrderBook.asks} />
+                <Card className="p-6 flex-grow">
+                     <h3 className="text-lg font-semibold text-white mb-4">Recent Trades</h3>
+                     <p className="text-center text-gray-500 pt-8">Feature coming soon.</p>
+                </Card>
             </div>
         </div>
     );
 };
 
 interface StrategyViewProps {
-    isBotSimulating: boolean;
-    onToggleBot: (active: boolean) => void;
-    onAddNotification: (message: string, type: 'success' | 'error' | 'info') => void;
+    strategyState: {
+        originalCode: string;
+        enhancedCode: string;
+        analysis: AnalysisResult | null;
+        appliedRecommendations: Set<string>;
+        backtestResult: BacktestResult | null;
+    };
+    setStrategyState: React.Dispatch<React.SetStateAction<StrategyViewProps['strategyState']>>;
+    onGenerateScript: () => void;
+    isGenerating: boolean;
+    onRunBacktest: () => void;
+    isBacktestRunning: boolean;
+    onExportScript: () => void;
+    isExporting: boolean;
+    onFormatCode: () => void;
+    isFormatting: boolean;
 }
-const StrategyView: React.FC<StrategyViewProps> = ({ isBotSimulating, onToggleBot, onAddNotification }) => {
-    const [originalCode, setOriginalCode] = useState<string>(DEFAULT_SCRIPT);
-    const [enhancedCode, setEnhancedCode] = useState<string>('');
-    const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-    const [backtestResults, setBacktestResults] = useState<BacktestResult | null>(null);
-    const [appliedRecommendations, setAppliedRecommendations] = useState<Set<string>>(new Set());
-    const [isLoading, setIsLoading] = useState({ analysis: true, generation: false, backtest: false, export: false });
-    const [error, setError] = useState({ analysis: null, backtest: null, export: null });
-    
-    useEffect(() => {
-        handleAnalyze();
-    }, []);
 
-    const handleAnalyze = async () => {
-        setIsLoading(prev => ({ ...prev, analysis: true }));
-        setError(prev => ({...prev, analysis: null}));
-        try {
-            const result = await analyzeCode(originalCode);
-            setAnalysis(result);
-            setAppliedRecommendations(new Set(result.recommendations.map(r => r.title)));
-        } catch (e: any) {
-            setError(prev => ({...prev, analysis: e.message}));
-            onAddNotification(`Analysis failed: ${e.message}`, 'error');
-        } finally {
-            setIsLoading(prev => ({ ...prev, analysis: false }));
-        }
-    };
+const StrategyView: React.FC<StrategyViewProps> = ({ 
+    strategyState, 
+    setStrategyState, 
+    onGenerateScript, 
+    isGenerating, 
+    onRunBacktest, 
+    isBacktestRunning, 
+    onExportScript, 
+    isExporting,
+    onFormatCode,
+    isFormatting,
+ }) => {
     
-    const handleGenerateScript = async () => {
-        if (!analysis) return;
-        setIsLoading(prev => ({ ...prev, generation: true }));
-        setEnhancedCode('');
-        try {
-            const selectedRecs = analysis.recommendations.filter(r => appliedRecommendations.has(r.title));
-            const code = await generateEnhancedCode(originalCode, selectedRecs);
-            setEnhancedCode(code);
-            onAddNotification('Enhanced script generated successfully!', 'success');
-        } catch (e: any) {
-            onAddNotification(`Script generation failed: ${e.message}`, 'error');
-        } finally {
-            setIsLoading(prev => ({ ...prev, generation: false }));
-        }
-    };
-    
-    const handleRunBacktest = async () => {
-        setIsLoading(prev => ({ ...prev, backtest: true }));
-        setBacktestResults(null);
-        setError(prev => ({ ...prev, backtest: null }));
-        try {
-            const codeToTest = enhancedCode || originalCode;
-            const results = await runBacktest(codeToTest);
-            setBacktestResults(results);
-            onAddNotification('Backtest completed!', 'success');
-        } catch (e: any) {
-            setError(prev => ({ ...prev, backtest: e.message }));
-            onAddNotification(`Backtest failed: ${e.message}`, 'error');
-        } finally {
-            setIsLoading(prev => ({ ...prev, backtest: false }));
-        }
-    };
-
-    const handleExportScript = async () => {
-        setIsLoading(prev => ({ ...prev, export: true }));
-        setError(prev => ({ ...prev, export: null }));
-        try {
-            const codeToExport = enhancedCode || originalCode;
-            const liveScript = await generateLiveBotScript(codeToExport);
-            
-            const blob = new Blob([liveScript], { type: 'text/x-python;charset=utf-8' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = 'live_trading_bot.py';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            onAddNotification('Live bot script exported!', 'success');
-        } catch (e: any) {
-            setError(prev => ({ ...prev, export: e.message }));
-            onAddNotification(`Export failed: ${e.message}`, 'error');
-        } finally {
-            setIsLoading(prev => ({ ...prev, export: false }));
-        }
-    };
-
-    const toggleRecommendation = (title: string) => {
-        setAppliedRecommendations(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(title)) newSet.delete(title);
-            else newSet.add(title);
-            return newSet;
+    const handleToggleRecommendation = (title: string) => {
+        setStrategyState(prevState => {
+            const newSet = new Set(prevState.appliedRecommendations);
+            if (newSet.has(title)) {
+                newSet.delete(title);
+            } else {
+                newSet.add(title);
+            }
+            return { ...prevState, appliedRecommendations: newSet };
         });
     };
     
+    const handleEnhancedCodeChange = (newCode: string) => {
+      setStrategyState(prevState => ({ ...prevState, enhancedCode: newCode }));
+    };
+
     return (
-        <div className="p-6 grid grid-cols-3 gap-6 h-full">
-            <div className="col-span-1 flex flex-col gap-6">
-                {isLoading.analysis ? (
-                    <Card className="flex items-center justify-center p-8 h-full"><LoadingIcon className="w-8 h-8" /></Card>
-                ) : error.analysis || !analysis ? (
-                    <Card className="flex flex-col items-center justify-center p-8 h-full text-center">
-                        <ExclamationTriangleIcon className="w-10 h-10 text-red-400" />
-                        <p className="mt-4 text-red-400">Failed to analyze script.</p>
-                        <p className="text-xs text-gray-400 mt-1">{error.analysis}</p>
-                        <Button onClick={handleAnalyze} className="mt-4">Retry Analysis</Button>
-                    </Card>
-                ) : (
+        <div className="p-6 flex gap-6 h-full">
+            <div className="w-1/3 flex flex-col gap-6">
+                {strategyState.analysis && (
                     <RecommendationsPanel
-                        analysis={analysis}
-                        appliedRecommendations={appliedRecommendations}
-                        onToggleRecommendation={toggleRecommendation}
-                        onGenerateScript={handleGenerateScript}
-                        isGenerating={isLoading.generation}
+                        analysis={strategyState.analysis}
+                        appliedRecommendations={strategyState.appliedRecommendations}
+                        onToggleRecommendation={handleToggleRecommendation}
+                        onGenerateScript={onGenerateScript}
+                        isGenerating={isGenerating}
                     />
                 )}
             </div>
-            <div className="col-span-2 flex flex-col gap-6">
-                 <Card className="p-4 flex justify-between items-center">
-                     <div className="flex flex-col">
-                        <h3 className="text-lg font-bold text-white">Strategy Deployment</h3>
-                        <p className="text-sm text-gray-400">Simulate your enhanced strategy with live market data.</p>
-                     </div>
-                     {isBotSimulating ? (
-                        <Button onClick={() => onToggleBot(false)} variant="secondary" className="!bg-red-600 hover:!bg-red-700 w-48 flex items-center justify-center">
-                            <StopIcon /><span className="ml-2">Stop Deployment</span>
-                        </Button>
-                     ) : (
-                        <div className="relative group">
-                            <Button onClick={() => onToggleBot(true)} variant="primary" disabled={!enhancedCode} className="w-48 flex items-center justify-center">
-                                <PlayIcon className="!h-5 !w-5" /><span className="ml-2">Deploy Strategy</span>
-                            </Button>
-                            {!enhancedCode && (
-                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
-                                    Generate the enhanced script to enable deployment.
-                                </div>
-                            )}
-                        </div>
-                     )}
-                 </Card>
-                <div className="grid grid-rows-2 gap-6 flex-grow">
+            <div className="w-2/3 flex flex-col gap-6">
+                <div className="h-1/2 flex flex-col">
                     <CodeViewer
-                        title="Enhanced Strategy Script"
-                        code={enhancedCode}
-                        isLoading={isLoading.generation}
-                        isBacktestRunning={isLoading.backtest}
-                        onRunBacktest={handleRunBacktest}
-                        onExportScript={handleExportScript}
-                        isExporting={isLoading.export}
+                        title="Original Script"
+                        code={strategyState.originalCode}
+                        readOnly={true}
                     />
-                    <BacktestResults results={backtestResults} isLoading={isLoading.backtest} error={error.backtest} />
+                </div>
+                <div className="h-1/2 flex flex-col">
+                    <CodeViewer
+                        title="Enhanced Script"
+                        code={strategyState.enhancedCode}
+                        onCodeChange={handleEnhancedCodeChange}
+                        isLoading={isGenerating}
+                        onRunBacktest={onRunBacktest}
+                        isBacktestRunning={isBacktestRunning}
+                        onExportScript={onExportScript}
+                        isExporting={isExporting}
+                        onFormatCode={onFormatCode}
+                        isFormatting={isFormatting}
+                    />
                 </div>
             </div>
         </div>
     );
 };
 
-const SettingsView: React.FC<{
-    onAddNotification: (message: string, type: 'success' | 'error' | 'info') => void;
-}> = ({ onAddNotification }) => {
-    const { apiKey, setApiKey, apiSecret, setApiSecret, isConnected, setIsConnected, environment, setEnvironment, tradeMethod, setTradeMethod } = useAPI();
-    const [isConnecting, setIsConnecting] = useState(false);
 
-    const handleConnect = async () => {
+interface BacktestViewProps {
+  backtestResult: BacktestResult | null;
+  isBacktestRunning: boolean;
+  backtestError: string | null;
+}
+
+const BacktestView: React.FC<BacktestViewProps> = ({ backtestResult, isBacktestRunning, backtestError }) => {
+    return (
+        <div className="p-6 h-full">
+            <BacktestResults results={backtestResult} isLoading={isBacktestRunning} error={backtestError} />
+        </div>
+    );
+}
+
+
+interface SettingsViewProps {
+    onConnect: (apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet') => Promise<void>;
+    onDisconnect: () => void;
+}
+
+const SettingsView: React.FC<SettingsViewProps> = ({ onConnect, onDisconnect }) => {
+    const { 
+        apiKey, setApiKey, 
+        apiSecret, setApiSecret, 
+        isConnected, 
+        environment, setEnvironment, 
+        tradeMethod, setTradeMethod,
+        soundAlertsEnabled, setSoundAlertsEnabled,
+        priceAlertThreshold, setPriceAlertThreshold,
+        selectedAlertSound, setSelectedAlertSound
+    } = useAPI();
+    const [isConnecting, setIsConnecting] = useState(false);
+    const [connectionError, setConnectionError] = useState<string | null>(null);
+
+    const handleConnect = async (e: React.FormEvent) => {
+        e.preventDefault();
         setIsConnecting(true);
+        setConnectionError(null);
         try {
-            await verifyAndFetchBalances(apiKey, apiSecret, environment);
-            setIsConnected(true);
-            onAddNotification('Successfully connected to Bybit!', 'success');
+            await onConnect(apiKey, apiSecret, environment);
         } catch (error: any) {
-            setIsConnected(false);
-            onAddNotification(`Connection failed: ${error.message}`, 'error');
+            setConnectionError(error.message);
         } finally {
             setIsConnecting(false);
         }
     };
 
-    const handleDisconnect = () => {
-        setIsConnected(false);
-        onAddNotification('Disconnected from exchange.', 'info');
-    };
-
     return (
-        <div className="p-6 max-w-2xl mx-auto">
-            <Card className="p-6">
-                <h2 className="text-2xl font-bold text-white mb-1">Exchange Connection</h2>
-                <p className="text-gray-400 mb-6">Connect your Bybit account to enable live trading and portfolio tracking.</p>
-
-                <div className="space-y-4">
-                    <Input label="API Key" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Enter your Bybit API Key" disabled={isConnected} />
-                    <Input label="API Secret" type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)} placeholder="Enter your Bybit API Secret" disabled={isConnected} />
-                    <ToggleSwitch label="Use Testnet Environment" enabled={environment === 'testnet'} onChange={enabled => setEnvironment(enabled ? 'testnet' : 'mainnet')} disabled={isConnected} />
-                    
-                    <div className="pt-2">
-                        {isConnected ? (
-                            <Button onClick={handleDisconnect} variant="secondary" className="w-full !py-3 !bg-red-600 hover:!bg-red-700">Disconnect</Button>
-                        ) : (
-                            <Button onClick={handleConnect} variant="primary" className="w-full !py-3" disabled={isConnecting || !apiKey || !apiSecret}>
-                                {isConnecting ? <LoadingIcon /> : <LinkIcon />} <span className="ml-2">{isConnecting ? 'Connecting...' : 'Connect to Bybit'}</span>
-                            </Button>
-                        )}
+        <div className="p-6 h-full flex items-center justify-center">
+             <div className="max-w-2xl w-full">
+                 <Card>
+                    <div className="p-6 border-b border-gray-700">
+                        <h3 className="text-xl font-semibold text-white">Exchange Connection</h3>
+                        <p className="text-gray-400 mt-1">Connect to your Bybit account to enable live trading and data feeds.</p>
                     </div>
-                </div>
-            </Card>
-            
-            <Card className="p-6 mt-6">
-                 <h2 className="text-2xl font-bold text-white mb-1">Trading Preferences</h2>
-                 <p className="text-gray-400 mb-6">Configure default settings for manual trading.</p>
-                 <ToggleSwitch label="Default to Limit Orders" enabled={tradeMethod === 'Limit'} onChange={enabled => setTradeMethod(enabled ? 'Limit' : 'Market')} />
-                 <p className="text-xs text-gray-500 mt-2">When enabled, the trade panel will default to Limit orders. This can be toggled per trade.</p>
-            </Card>
+                    <form onSubmit={handleConnect}>
+                        <div className="p-6 space-y-4">
+                           {connectionError && (
+                             <div className="bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-md text-sm">
+                                <p className="font-bold mb-1">Connection Failed</p>
+                                {connectionError}
+                             </div>
+                           )}
+
+                           {isConnected && (
+                               <div className="bg-green-900/50 border border-green-700 text-green-300 p-3 rounded-md text-sm flex items-center">
+                                   <CheckCircleIcon className="w-5 h-5 mr-2" />
+                                   Successfully connected to Bybit {environment}.
+                               </div>
+                           )}
+
+                           <Input label="API Key" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Your Bybit API Key" disabled={isConnected} />
+                           <Input label="API Secret" type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)} placeholder="Your Bybit API Secret" disabled={isConnected} />
+                           <ToggleSwitch
+                              label="Use Testnet Environment"
+                              enabled={environment === 'testnet'}
+                              onChange={(enabled) => setEnvironment(enabled ? 'testnet' : 'mainnet')}
+                              disabled={isConnected}
+                           />
+                           <p className="text-xs text-gray-500">Enable to connect to the Bybit testnet for risk-free testing. Requires separate testnet API keys.</p>
+                        </div>
+                        <div className="p-6 bg-gray-900/50 rounded-b-xl flex justify-end space-x-4">
+                            {isConnected ? (
+                                <Button onClick={onDisconnect} variant="secondary">Disconnect</Button>
+                            ) : (
+                                <Button type="submit" variant="primary" disabled={isConnecting || !apiKey || !apiSecret}>
+                                    {isConnecting ? 'Connecting...' : 'Connect'}
+                                </Button>
+                            )}
+                        </div>
+                    </form>
+                 </Card>
+                 <Card className="mt-6">
+                    <div className="p-6 border-b border-gray-700">
+                        <h3 className="text-xl font-semibold text-white">Trading Preferences</h3>
+                         <p className="text-gray-400 mt-1">Configure how manual trades are executed from the Trade view.</p>
+                    </div>
+                     <div className="p-6">
+                         <ToggleSwitch
+                            label="Default to Limit Orders"
+                            enabled={tradeMethod === 'Limit'}
+                            onChange={(enabled) => setTradeMethod(enabled ? 'Limit' : 'Market')}
+                         />
+                         <p className="text-xs text-gray-500">When enabled, the trade panel will default to placing Limit orders instead of Market orders.</p>
+                     </div>
+                 </Card>
+                 <Card className="mt-6">
+                    <div className="p-6 border-b border-gray-700">
+                        <h3 className="text-xl font-semibold text-white">Notification Preferences</h3>
+                        <p className="text-gray-400 mt-1">Configure sound alerts for market events and AI suggestions.</p>
+                    </div>
+                    <div className="p-6 space-y-4">
+                        <ToggleSwitch
+                            label="Enable Sound Alerts"
+                            enabled={soundAlertsEnabled}
+                            onChange={setSoundAlertsEnabled}
+                        />
+                        <Input
+                            label="Price Movement Threshold (%)"
+                            type="number"
+                            value={priceAlertThreshold}
+                            onChange={e => setPriceAlertThreshold(Math.max(0.1, parseFloat(e.target.value)))}
+                            disabled={!soundAlertsEnabled}
+                            step="0.1"
+                            min="0.1"
+                        />
+                        <div>
+                            <label htmlFor="alert-sound" className="block text-sm font-medium text-gray-400 mb-1">Alert Sound</label>
+                            <div className="flex items-center space-x-2">
+                                <select
+                                    id="alert-sound"
+                                    value={selectedAlertSound}
+                                    onChange={e => setSelectedAlertSound(e.target.value)}
+                                    disabled={!soundAlertsEnabled}
+                                    className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:bg-gray-800 disabled:cursor-not-allowed"
+                                >
+                                    {AVAILABLE_SOUNDS.map(sound => (
+                                        <option key={sound.url} value={sound.url}>{sound.name}</option>
+                                    ))}
+                                </select>
+                                <Button onClick={() => playSound(selectedAlertSound)} disabled={!soundAlertsEnabled} className="!px-3 !py-2">
+                                    <SpeakerWaveIcon />
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                 </Card>
+            </div>
         </div>
     );
 };
+
 
 
 // ============================================================================
 // MAIN APP COMPONENT
 // ============================================================================
 
-const MainApp: React.FC = () => {
-    const [currentView, setCurrentView] = useState('dashboard');
-    const [notifications, setNotifications] = useState<Notification[]>([]);
-    const { isConnected, apiKey, apiSecret, environment } = useAPI();
-    
-    // Portfolio State
-    const [assets, setAssets] = useState<Asset[]>([]);
-    const [positions, setPositions] = useState<Position[]>([]);
-    const [history, setHistory] = useState<PortfolioHistory>(MOCK_PORTFOLIO_HISTORY);
-    const [realizedPnl, setRealizedPnl] = useState(0);
-
-    // Live Data State
-    const wsManagerRef = useRef<ReturnType<typeof createWebSocketManager> | null>(null);
-    const [liveTickers, setLiveTickers] = useState<{ [symbol: string]: number }>({});
-    const [liveOrderBook, setLiveOrderBook] = useState<{ bids: Order[], asks: Order[] }>(MOCK_INITIAL_ORDERBOOK);
-    const [livePositions, setLivePositions] = useState<Position[]>([]);
-    const [tradeViewMarket, setTradeViewMarket] = useState(Object.keys(MOCK_TRADE_VIEW_DATA)[0]);
-
-
-    // AI & Bot State
-    const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
-    const [isBotSimulating, setIsBotSimulating] = useState(false);
-    const [aiSuggestion, setAiSuggestion] = useState({ suggestion: '', isLoading: false, error: null as string | null });
-    const botStartedRef = useRef(false);
-
-    const addNotification = useCallback((message: string, type: 'success' | 'error' | 'info') => {
-        const icons = {
-            success: <CheckCircleIcon className="h-6 w-6" />,
-            error: <ExclamationTriangleIcon className="h-6 w-6" />,
-            info: <InfoIcon className="h-6 w-6" />,
-        };
-        const newNotification: Notification = { id: Date.now(), message, type, icon: icons[type] };
-        setNotifications(prev => [...prev, newNotification]);
-    }, []);
-
-    const dismissNotification = (id: number) => {
-        setNotifications(prev => prev.filter(n => n.id !== id));
-    };
-
-    const addActivityLog = useCallback((message: string, type: ActivityLogEntry['type']) => {
-        setActivityLog(prev => [...prev, { timestamp: new Date().toISOString(), message, type }]);
-    }, []);
-
-    const fetchPortfolioData = useCallback(async () => {
-        if (!isConnected) return;
-        try {
-            const [fetchedAssets, fetchedPositions] = await Promise.all([
-                verifyAndFetchBalances(apiKey, apiSecret, environment),
-                fetchPositions(apiKey, apiSecret, environment)
-            ]);
-            setAssets(fetchedAssets);
-            setPositions(fetchedPositions);
-        } catch (error: any) {
-            addNotification(`Failed to fetch portfolio: ${error.message}`, 'error');
-        }
-    }, [isConnected, apiKey, apiSecret, environment, addNotification]);
-
-    // REST API polling
-    useEffect(() => {
-        if (isConnected) {
-            addActivityLog('Connected to exchange. Fetching data...', 'info');
-            fetchPortfolioData();
-            const interval = setInterval(fetchPortfolioData, 30000); // Poll every 30 seconds
-            return () => clearInterval(interval);
-        } else {
-            setAssets([]);
-            setPositions([]);
-        }
-    }, [isConnected, fetchPortfolioData, addActivityLog]);
-    
-    // WebSocket connection management
-    useEffect(() => {
-        if (isConnected) {
-            const handleTicker = (data: { symbol: string; price: number; }) => {
-                setLiveTickers(prev => ({ ...prev, [data.symbol]: data.price }));
-            };
-            const handleOrderBook = (data: { bids: Order[]; asks: Order[]; }) => {
-                setLiveOrderBook(data);
-            };
-
-            wsManagerRef.current = createWebSocketManager(environment, handleTicker, handleOrderBook);
-            addActivityLog('Live data connection established.', 'info');
-
-            return () => {
-                wsManagerRef.current?.disconnect();
-                wsManagerRef.current = null;
-                addActivityLog('Live data connection closed.', 'info');
-            };
-        }
-    }, [isConnected, environment, addActivityLog]);
-
-    // WebSocket dynamic subscription management
-    useEffect(() => {
-        if (isConnected && wsManagerRef.current) {
-            const positionSymbols = positions.map(p => p.asset);
-            const allSymbols = new Set(positionSymbols);
-            
-            let orderBookSymbol: string | null = null;
-            if (currentView === 'trade') {
-                allSymbols.add(tradeViewMarket);
-                orderBookSymbol = tradeViewMarket;
-            }
-
-            wsManagerRef.current.updateSubscriptions(Array.from(allSymbols), orderBookSymbol);
-        }
-    }, [isConnected, positions, currentView, tradeViewMarket]);
-
-    // Update positions with live PnL
-    useEffect(() => {
-        if (positions.length === 0 && livePositions.length === 0) return;
-
-        const updatedPositions = positions.map(pos => {
-            const livePrice = liveTickers[pos.asset];
-            if (livePrice) {
-                const directionMultiplier = pos.direction === 'LONG' ? 1 : -1;
-                const newPnl = (livePrice - pos.entryPrice) * pos.size * directionMultiplier;
-                // pnlPercent calculation from bybitService uses margin which we can't easily get here.
-                // We'll update the dollar PnL which is the most important real-time metric.
-                return { ...pos, pnl: newPnl };
-            }
-            return pos;
-        });
-        setLivePositions(updatedPositions);
-    }, [positions, liveTickers]);
-
-
-    // Bot Simulation Effect - REFACTORED FOR CORRECTNESS
-    useEffect(() => {
-        if (!isBotSimulating) {
-            if (botStartedRef.current) {
-                addActivityLog('AI strategy deployment simulation stopped.', 'info');
-                botStartedRef.current = false;
-            }
-            return;
-        }
-
-        addActivityLog('AI strategy deployment simulation started.', 'info');
-        botStartedRef.current = true;
-        
-        const intervalId: number = window.setInterval(() => {
-            const isLong = Math.random() > 0.5;
-            const pnl = (Math.random() - 0.45) * 50;
-            const newTrade: Position = {
-                id: `sim-${Date.now()}`,
-                asset: 'BTC/USD',
-                direction: isLong ? 'LONG' : 'SHORT',
-                entryPrice: 69000 + (Math.random() - 0.5) * 500,
-                size: 0.01,
-                pnl: pnl,
-                pnlPercent: (pnl / (69000 * 0.01 / 10)) * 100, // Assuming 10x leverage
-                openTimestamp: new Date().toISOString(),
-            };
-            addActivityLog(`Simulated Trade: New ${newTrade.direction} ${newTrade.asset} position opened.`, 'trade');
-            setPositions(prev => [...prev, newTrade]);
-            
-            // Simulate closing a position using a functional update to get the latest state
-            setPositions(prevPositions => {
-                if (prevPositions.length > 0 && Math.random() > 0.7) {
-                    const posToClose = prevPositions[0];
-                    setRealizedPnl(prevPnl => prevPnl + posToClose.pnl);
-                    addActivityLog(`Simulated Trade: Closed ${posToClose.direction} position for a PnL of $${posToClose.pnl.toFixed(2)}.`, posToClose.pnl >= 0 ? 'profit' : 'loss');
-                    return prevPositions.slice(1);
-                }
-                return prevPositions;
-            });
-        }, 8000);
-        
-        return () => {
-            clearInterval(intervalId);
-        };
-    }, [isBotSimulating, addActivityLog]);
-
-
-    const handleExecuteTrade = async (details: { asset: string, direction: 'LONG' | 'SHORT', amountUSD: number, orderType: 'Market' | 'Limit', limitPrice?: string }) => {
-        if (!isConnected) {
-            addNotification('Cannot execute trade. Not connected to an exchange.', 'error');
-            return;
-        }
-        try {
-            await executeLiveTrade(details, apiKey, apiSecret, environment);
-            addNotification(`${details.direction} order for ${details.asset} placed successfully!`, 'success');
-            addActivityLog(`Manual Trade: Placed ${details.direction} order for ${details.amountUSD} USD of ${details.asset}.`, 'trade');
-            setTimeout(fetchPortfolioData, 2000); // Refresh data after a short delay
-        } catch (error: any) {
-            addNotification(`Trade failed: ${error.message}`, 'error');
-        }
-    };
-    
-    const handleManualClosePosition = async (position: Position) => {
-        if (!isConnected) {
-            addNotification('Cannot close position. Not connected to an exchange.', 'error');
-            return;
-        }
-        try {
-            await closeLivePosition(position, apiKey, apiSecret, environment);
-            addNotification(`Close order for ${position.asset} placed successfully!`, 'success');
-            addActivityLog(`Manual Close: Placed market close order for ${position.asset}.`, 'trade');
-            setTimeout(fetchPortfolioData, 2000);
-        } catch (error: any) {
-            addNotification(`Failed to close position: ${error.message}`, 'error');
-        }
-    };
-
-    const handleGetSuggestion = async () => {
-        setAiSuggestion({ suggestion: '', isLoading: true, error: null });
-        try {
-            const context = `Current unrealized PnL: $${positions.reduce((acc, p) => acc + p.pnl, 0).toFixed(2)}. Open positions: ${positions.length}. Total portfolio value: $${(assets.find(a=>a.name === 'USDT')?.usdValue ?? 0).toFixed(2)}.`;
-            const suggestion = await getTradingSuggestion(context);
-            setAiSuggestion({ suggestion, isLoading: false, error: null });
-            addActivityLog(`AI Suggestion: ${suggestion}`, 'info');
-        } catch (error: any) {
-            const errorMsg = `Failed to get AI suggestion: ${error.message}`;
-            setAiSuggestion({ suggestion: '', isLoading: false, error: errorMsg });
-            addNotification(errorMsg, 'error');
-        }
-    };
-
-    const NavItem: React.FC<{ view: string; icon: React.ReactElement; label: string; }> = ({ view, icon, label }) => (
-        <button
-            onClick={() => setCurrentView(view)}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === view ? 'bg-cyan-500/20 text-cyan-400' : 'text-gray-400 hover:bg-gray-700/50 hover:text-white'}`}
-        >
-            {icon}
-            <span className="font-semibold">{label}</span>
-        </button>
-    );
-
-    const renderView = () => {
-        switch (currentView) {
-            case 'dashboard':
-                return <DashboardView history={history} positions={livePositions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleManualClosePosition} activityLog={activityLog} onGetSuggestion={handleGetSuggestion} aiSuggestion={aiSuggestion} />;
-            case 'trade':
-                return <TradeView tradeViewData={MOCK_TRADE_VIEW_DATA} onExecuteTrade={handleExecuteTrade} isConnected={isConnected} market={tradeViewMarket} setMarket={setTradeViewMarket} liveOrderBook={liveOrderBook} liveTickerPrice={liveTickers[tradeViewMarket] || null} />;
-            case 'strategy':
-                return <StrategyView isBotSimulating={isBotSimulating} onToggleBot={setIsBotSimulating} onAddNotification={addNotification} />;
-            case 'settings':
-                return <SettingsView onAddNotification={addNotification} />;
-            default:
-                return <DashboardView history={history} positions={livePositions} realizedPnl={realizedPnl} assets={assets} onManualClosePosition={handleManualClosePosition} activityLog={activityLog} onGetSuggestion={handleGetSuggestion} aiSuggestion={aiSuggestion} />;
-        }
-    };
-
+const App: React.FC = () => {
     return (
-        <div className="flex h-screen bg-gray-900 text-gray-100">
-            {/* Sidebar */}
-            <aside className="w-64 flex-shrink-0 bg-gray-800/50 p-4 flex flex-col">
-                <div className="flex items-center space-x-2 px-2 mb-8">
-                    <SparklesIcon className="h-8 w-8 text-cyan-400" />
-                    <h1 className="text-2xl font-bold text-white">Xamanix</h1>
-                </div>
-                <nav className="space-y-2">
-                    <NavItem view="dashboard" icon={<DashboardIcon />} label="Dashboard" />
-                    <NavItem view="trade" icon={<TradeIcon />} label="Trade" />
-                    <NavItem view="strategy" icon={<RocketIcon className="h-6 w-6"/>} label="Strategy" />
-                    <NavItem view="settings" icon={<SettingsIcon />} label="Settings" />
-                </nav>
-                <div className="mt-auto p-4 bg-gray-700/30 rounded-lg text-center">
-                    <p className="text-sm font-semibold text-white">AI-Powered Trading</p>
-                    <p className="text-xs text-gray-400 mt-1">Enhance, backtest, and deploy your strategies with Gemini.</p>
-                </div>
-            </aside>
-
-            {/* Main Content */}
-            <main className="flex-1 flex flex-col overflow-hidden">
-                <DashboardHeader currentView={currentView} isConnected={isConnected} isBotSimulating={isBotSimulating} />
-                <div className="flex-1 overflow-y-auto bg-gray-900">
-                    {renderView()}
-                </div>
-            </main>
-            
-            {/* Notifications */}
-            <div className="fixed bottom-0 right-0 p-4 space-y-2">
-                 {notifications.map(n => <NotificationPopup key={n.id} notification={n} onDismiss={dismissNotification} />)}
-            </div>
-        </div>
+        <APIProvider>
+            <MainLayout />
+        </APIProvider>
     );
 }
 
-// Wrap main app component in provider and rename for clarity
-const App = () => (
-    <APIProvider>
-        <MainApp />
-    </APIProvider>
-);
+const MainLayout: React.FC = () => {
+  const [currentView, setCurrentView] = useState('dashboard');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const { isConnected, setIsConnected, apiKey, apiSecret, environment, soundAlertsEnabled, selectedAlertSound } = useAPI();
+  
+  // State for Dashboard / Global data
+  const [portfolioHistory, setPortfolioHistory] = useState<PortfolioHistory>(MOCK_PORTFOLIO_HISTORY);
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [closedTrades, setClosedTrades] = useState<ClosedTrade[]>([]);
+  const [realizedPnl, setRealizedPnl] = useState(0);
+  const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const nextNotificationId = useRef(0);
+  const seenPositionIds = useRef(new Set<string>());
+
+  // State for Trade View
+  const [tradeViewData, setTradeViewData] = useState<TradeViewData>(MOCK_TRADE_VIEW_DATA);
+  const [liveOrderBook, setLiveOrderBook] = useState<{bids: Order[], asks: Order[] }>(MOCK_INITIAL_ORDERBOOK);
+  const [liveTickerPrice, setLiveTickerPrice] = useState<number | null>(null);
+  const [market, setMarket] = useState<string>('BTC/USD');
+
+  // State for Strategy View
+  const [strategyState, setStrategyState] = useState({
+      originalCode: DEFAULT_SCRIPT,
+      enhancedCode: '',
+      analysis: null as AnalysisResult | null,
+      appliedRecommendations: new Set<string>(),
+      backtestResult: null as BacktestResult | null,
+  });
+  const [isAnalyzing, setIsAnalyzing] = useState(true); // Analyze on load
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isBacktestRunning, setIsBacktestRunning] = useState(false);
+  const [backtestError, setBacktestError] = useState<string|null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isFormatting, setIsFormatting] = useState(false);
+  
+  // State for AI Suggestions
+  const [aiSuggestion, setAiSuggestion] = useState({ suggestion: '', isLoading: false, error: null as string | null });
+
+  // WebSocket manager
+  const wsManager = useRef<ReturnType<typeof createWebSocketManager> | null>(null);
+
+  const addNotification = useCallback((message: string, type: 'success' | 'error' | 'info') => {
+      const icons = {
+          success: <CheckCircleIcon className="h-6 w-6" />,
+          error: <ExclamationTriangleIcon className="h-6 w-6" />,
+          info: <InfoIcon className="h-6 w-6" />,
+      };
+      const id = nextNotificationId.current++;
+      setNotifications(prev => [...prev, { id, message, type, icon: icons[type] }]);
+      if(soundAlertsEnabled && type !== 'info') playSound(selectedAlertSound);
+  }, [soundAlertsEnabled, selectedAlertSound]);
+
+  const dismissNotification = (id: number) => {
+      setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+  
+  const addActivityLog = useCallback((message: string, type: ActivityLogEntry['type']) => {
+      setActivityLog(prev => [...prev, { timestamp: new Date().toISOString(), message, type }]);
+  }, []);
+
+  // Effect to manage WebSocket connection
+  useEffect(() => {
+    if (isConnected) {
+        if (wsManager.current) wsManager.current.disconnect();
+
+        wsManager.current = createWebSocketManager(
+            environment,
+            (tickerData) => { // Ticker callback
+                if (tickerData.symbol === market) {
+                    setLiveTickerPrice(tickerData.price);
+                }
+            },
+            (orderBookData) => { // Order book callback
+                setLiveOrderBook(orderBookData);
+            }
+        );
+
+        // Subscribe to relevant market data
+        const symbolsToTrack = Object.keys(tradeViewData);
+        wsManager.current.updateSubscriptions(symbolsToTrack, market);
+        addActivityLog(`WebSocket connected to Bybit ${environment}.`, 'info');
+    }
+
+    return () => {
+        if (wsManager.current) {
+            wsManager.current.disconnect();
+            wsManager.current = null;
+        }
+    };
+  }, [isConnected, environment, addActivityLog]);
+
+  // Effect to update WebSocket subscriptions when market changes
+  useEffect(() => {
+      if (wsManager.current && isConnected) {
+          const symbolsToTrack = Object.keys(tradeViewData);
+          wsManager.current.updateSubscriptions(symbolsToTrack, market);
+          // Clear old data for new market
+          setLiveOrderBook(MOCK_INITIAL_ORDERBOOK);
+          setLiveTickerPrice(null);
+      }
+  }, [market, isConnected, tradeViewData]);
+
+
+  // Effect for fetching initial account data and periodic updates
+  useEffect(() => {
+      let interval: number;
+
+      const fetchAllData = async () => {
+          if (!isConnected || !apiKey || !apiSecret) return;
+          try {
+              const [newAssets, newPositions] = await Promise.all([
+                  verifyAndFetchBalances(apiKey, apiSecret, environment),
+                  fetchPositions(apiKey, apiSecret, environment)
+              ]);
+              setAssets(newAssets);
+              setPositions(prevPositions => {
+                  const updatedPositions = [...newPositions];
+                  // Carry over 'seen' status from previous state
+                  updatedPositions.forEach(p => {
+                      if (seenPositionIds.current.has(p.id)) {
+                          p.seen = true;
+                      }
+                  });
+                  return updatedPositions;
+              });
+          } catch (error: any) {
+              console.error("Error fetching account data:", error);
+              addNotification(error.message, 'error');
+              setIsConnected(false); // Disconnect on critical fetch error
+          }
+      };
+
+      if (isConnected) {
+          fetchAllData();
+          interval = window.setInterval(fetchAllData, 10000); // Poll every 10 seconds
+      }
+
+      return () => {
+          if (interval) clearInterval(interval);
+      };
+  }, [isConnected, apiKey, apiSecret, environment, addNotification, setIsConnected]);
+
+  // Effect to process position changes for notifications and logging
+    useEffect(() => {
+        const prevPositionMap = new Map<string, Position>();
+        // Using a ref to store previous positions to avoid re-triggering the effect
+        const prevPositionsRef = React.useRef<Position[]>([]);
+        prevPositionsRef.current.forEach(p => prevPositionMap.set(p.id, p));
+
+        const currentPositionMap = new Map<string, Position>();
+        positions.forEach(p => currentPositionMap.set(p.id, p));
+
+        // Check for new positions
+        for (const [id, pos] of currentPositionMap.entries()) {
+            if (!prevPositionMap.has(id)) {
+                addNotification(`New ${pos.direction} position opened for ${pos.asset}.`, 'info');
+                addActivityLog(`Opened ${pos.direction} ${pos.asset} at $${pos.entryPrice.toFixed(2)}`, 'trade');
+                seenPositionIds.current.add(id);
+            }
+        }
+
+        // Check for closed positions
+        for (const [id, pos] of prevPositionMap.entries()) {
+            if (!currentPositionMap.has(id)) {
+                // To calculate PnL, we need a better mechanism, this is an approximation
+                // A dedicated trade history endpoint would be better.
+                addNotification(`Position for ${pos.asset} closed.`, 'info');
+                addActivityLog(`Closed ${pos.direction} ${pos.asset}. PnL: $${pos.pnl.toFixed(2)}`, pos.pnl >= 0 ? 'profit' : 'loss');
+                setRealizedPnl(prev => prev + pos.pnl);
+                seenPositionIds.current.delete(id);
+            }
+        }
+        
+        // Update the ref for the next render
+        prevPositionsRef.current = positions;
+
+    }, [positions, addNotification, addActivityLog]);
+
+
+  const handleConnect = async (apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet') => {
+      try {
+          const initialAssets = await verifyAndFetchBalances(apiKey, apiSecret, environment);
+          setAssets(initialAssets);
+          setIsConnected(true);
+          addNotification('Successfully connected to Bybit!', 'success');
+          addActivityLog('Connected to Bybit API.', 'info');
+      } catch (error: any) {
+          addNotification(error.message, 'error');
+          setIsConnected(false);
+          // Re-throw to be caught in the SettingsView component
+          throw error;
+      }
+  };
+
+  const handleDisconnect = () => {
+      setIsConnected(false);
+      setAssets([]);
+      setPositions([]);
+      setRealizedPnl(0);
+      setActivityLog([]);
+      if (wsManager.current) {
+          wsManager.current.disconnect();
+          wsManager.current = null;
+      }
+      addNotification('Disconnected from Bybit.', 'info');
+  };
+  
+  const handleManualClosePosition = async (position: Position) => {
+    try {
+        await closeLivePosition(position, apiKey, apiSecret, environment);
+        addNotification(`Close order for ${position.asset} submitted.`, 'success');
+    } catch (error: any) {
+        addNotification(`Failed to close position: ${error.message}`, 'error');
+    }
+  };
+  
+  const handleExecuteTrade = async (details: { 
+      asset: string, 
+      direction: 'LONG' | 'SHORT', 
+      amountUSD: number, 
+      orderType: 'Market' | 'Limit', 
+      limitPrice?: string,
+      takeProfit?: { type: 'Price' | 'Percentage', value: string }
+    }) => {
+      try {
+          await executeLiveTrade(details, apiKey, apiSecret, environment);
+          addNotification(`${details.direction} order for ${details.asset} submitted.`, 'success');
+          addActivityLog(`Submitted ${details.direction} order for ${details.amountUSD} USD of ${details.asset}`, 'trade');
+      } catch (error: any) {
+           addNotification(`Trade failed: ${error.message}`, 'error');
+      }
+  };
+
+  const handleAnalyzeCode = async () => {
+    setIsAnalyzing(true);
+    try {
+        const result = await analyzeCode(strategyState.originalCode);
+        setStrategyState(prevState => ({
+            ...prevState,
+            analysis: result,
+            // Automatically select all new recommendations
+            appliedRecommendations: new Set(result.recommendations.map(r => r.title))
+        }));
+    } catch (error: any) {
+        addNotification(`Code analysis failed: ${error.message}`, 'error');
+    } finally {
+        setIsAnalyzing(false);
+    }
+  };
+
+  // Run analysis on initial load
+  useEffect(() => {
+    handleAnalyzeCode();
+  }, []);
+
+  const handleRunBacktest = async () => {
+      setIsBacktestRunning(true);
+      setBacktestError(null);
+      try {
+          const result = await runBacktest(strategyState.enhancedCode);
+          setStrategyState(prevState => ({ ...prevState, backtestResult: result }));
+          setCurrentView('backtest'); // Switch to backtest view on success
+      } catch (error: any) {
+          setBacktestError(error.message);
+          setCurrentView('backtest'); // Switch to backtest view even on error
+      } finally {
+          setIsBacktestRunning(false);
+      }
+  };
+  
+  const handleGenerateEnhancedCode = async () => {
+      if (!strategyState.analysis) return;
+      setIsGenerating(true);
+      try {
+          const applied = strategyState.analysis.recommendations.filter(rec =>
+              strategyState.appliedRecommendations.has(rec.title)
+          );
+          const newCode = await generateEnhancedCode(strategyState.originalCode, applied);
+          setStrategyState(prevState => ({ ...prevState, enhancedCode: newCode }));
+      } catch (error: any) {
+          addNotification(`Failed to generate code: ${error.message}`, 'error');
+      } finally {
+          setIsGenerating(false);
+      }
+  };
+  
+  const handleFormatCode = async () => {
+      if(!strategyState.enhancedCode) return;
+      setIsFormatting(true);
+      try {
+          const formatted = await formatCode(strategyState.enhancedCode);
+          setStrategyState(prevState => ({ ...prevState, enhancedCode: formatted }));
+          addNotification('Code formatted successfully.', 'success');
+      } catch (error: any) {
+          addNotification(`Code formatting failed: ${error.message}`, 'error');
+      } finally {
+          setIsFormatting(false);
+      }
+  }
+
+  const handleExportScript = async () => {
+      if(!strategyState.enhancedCode) return;
+      setIsExporting(true);
+      try {
+          const liveScript = await generateLiveBotScript(strategyState.enhancedCode);
+          const blob = new Blob([liveScript], { type: 'text/x-python' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'live_trading_bot.py';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          addNotification('Live script exported successfully!', 'success');
+      } catch (error: any) {
+           addNotification(`Failed to export script: ${error.message}`, 'error');
+      } finally {
+          setIsExporting(false);
+      }
+  };
+
+  const handleGetAISuggestion = async () => {
+      setAiSuggestion({ suggestion: '', isLoading: true, error: null });
+      try {
+          const context = `Current realized PnL is $${realizedPnl.toFixed(2)}. There are ${positions.length} open positions. The bot is ${isConnected ? 'connected' : 'not connected'}.`;
+          const suggestion = await getTradingSuggestion(context);
+          setAiSuggestion({ suggestion, isLoading: false, error: null });
+          if (soundAlertsEnabled) playSound(selectedAlertSound);
+      } catch (error: any) {
+           const errorMessage = `Failed to get AI suggestion: ${error.message}`;
+           addNotification(errorMessage, 'error');
+           setAiSuggestion({ suggestion: '', isLoading: false, error: errorMessage });
+      }
+  };
+  
+  const renderView = () => {
+    switch (currentView) {
+      case 'dashboard':
+        return <DashboardView 
+                    history={portfolioHistory} 
+                    positions={positions} 
+                    realizedPnl={realizedPnl}
+                    assets={assets}
+                    onManualClosePosition={handleManualClosePosition}
+                    activityLog={activityLog}
+                    onGetSuggestion={handleGetAISuggestion}
+                    aiSuggestion={aiSuggestion}
+                />;
+      case 'trade':
+        return <TradeView 
+                    tradeViewData={tradeViewData}
+                    onExecuteTrade={handleExecuteTrade}
+                    isConnected={isConnected}
+                    market={market}
+                    setMarket={setMarket}
+                    liveOrderBook={liveOrderBook}
+                    liveTickerPrice={liveTickerPrice}
+                    addNotification={addNotification}
+                />;
+      case 'strategy':
+        return <StrategyView 
+                    strategyState={strategyState}
+                    setStrategyState={setStrategyState}
+                    onGenerateScript={handleGenerateEnhancedCode}
+                    isGenerating={isGenerating}
+                    onRunBacktest={handleRunBacktest}
+                    isBacktestRunning={isBacktestRunning}
+                    onExportScript={handleExportScript}
+                    isExporting={isExporting}
+                    onFormatCode={handleFormatCode}
+                    isFormatting={isFormatting}
+                />;
+      case 'backtest':
+        return <BacktestView 
+                    backtestResult={strategyState.backtestResult} 
+                    isBacktestRunning={isBacktestRunning}
+                    backtestError={backtestError}
+                />;
+      case 'settings':
+        return <SettingsView onConnect={handleConnect} onDisconnect={handleDisconnect} />;
+      default:
+        return <DashboardView 
+                    history={portfolioHistory} 
+                    positions={positions} 
+                    realizedPnl={realizedPnl}
+                    assets={assets}
+                    onManualClosePosition={handleManualClosePosition}
+                    activityLog={activityLog}
+                    onGetSuggestion={handleGetAISuggestion}
+                    aiSuggestion={aiSuggestion}
+                />;
+    }
+  };
+
+  return (
+    <div className="flex h-screen bg-gray-900 text-gray-100">
+      <Sidebar
+        currentView={currentView}
+        setCurrentView={setCurrentView}
+        isCollapsed={isSidebarCollapsed}
+        toggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+      />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <DashboardHeader 
+          currentView={currentView}
+          isConnected={isConnected}
+          isBotSimulating={false} // Placeholder for future live bot state
+        />
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-900">
+          {renderView()}
+        </main>
+      </div>
+      {notifications.map(notification => (
+        <NotificationPopup key={notification.id} notification={notification} onDismiss={dismissNotification} />
+      ))}
+    </div>
+  );
+};
+
+const Sidebar: React.FC<{
+  currentView: string;
+  setCurrentView: (view: string) => void;
+  isCollapsed: boolean;
+  toggleSidebar: () => void;
+}> = ({ currentView, setCurrentView, isCollapsed, toggleSidebar }) => {
+  const navItems = [
+    { name: 'dashboard', icon: <DashboardIcon />, label: 'Dashboard' },
+    { name: 'trade', icon: <TradeIcon />, label: 'Trade' },
+    { name: 'strategy', icon: <SparklesIcon />, label: 'Strategy' },
+    { name: 'backtest', icon: <ChartBarIcon />, label: 'Backtest' },
+    { name: 'settings', icon: <SettingsIcon />, label: 'Settings' },
+  ];
+
+  return (
+    <div className={`flex flex-col bg-gray-800 border-r border-gray-700 transition-width duration-300 ${isCollapsed ? 'w-20' : 'w-64'}`}>
+      <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'px-4'} h-16 border-b border-gray-700`}>
+        <RocketIcon className="h-8 w-8 text-cyan-400" />
+        {!isCollapsed && <span className="ml-2 text-xl font-bold text-white">Xamanix</span>}
+      </div>
+      <nav className="flex-grow px-2 py-4 space-y-2">
+        {navItems.map(item => (
+          <a
+            key={item.name}
+            href="#"
+            onClick={(e) => { e.preventDefault(); setCurrentView(item.name); }}
+            className={`flex items-center p-3 rounded-lg transition-colors ${
+              currentView === item.name
+                ? 'bg-cyan-500 text-white'
+                : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+            } ${isCollapsed ? 'justify-center' : ''}`}
+          >
+            {item.icon}
+            {!isCollapsed && <span className="ml-4">{item.label}</span>}
+          </a>
+        ))}
+      </nav>
+      {/* Footer can go here */}
+    </div>
+  );
+};
+
 
 export default App;

@@ -1,7 +1,6 @@
 
 
-
-import type { PortfolioHistory, Asset, Position, TradeViewData, PriceData, Order } from './types';
+import type { PortfolioHistory, Asset, Position, TradeViewData, PriceData, Order, Candle } from './types';
 
 export const MOCK_PORTFOLIO_HISTORY: PortfolioHistory = {
   timestamps: Array.from({ length: 30 }, (_, i) => new Date(Date.now() - (29 - i) * 24 * 60 * 60 * 1000).toISOString()),
@@ -26,43 +25,60 @@ export const MOCK_POSITIONS: Position[] = [
   { id: '3', asset: 'SOL/USD', direction: 'SHORT', entryPrice: 165, size: 5, pnl: -25.50, pnlPercent: -3.1, openTimestamp: new Date(Date.now() - 1800000).toISOString(), seen: false },
 ];
 
-const generateCandleData = (basePrice: number, points: number, volatility: number): PriceData => {
-    const prices: number[] = [];
-    const timestamps: string[] = [];
-    let currentPrice = basePrice;
+const generateCandleData = (basePrice: number, points: number, volatility: number, minutesInterval: number): PriceData => {
+    const candles: Candle[] = [];
+    let lastClose = basePrice;
+    const now = Date.now();
+
     for (let i = 0; i < points; i++) {
-        const change = (Math.random() - 0.5) * (currentPrice * volatility);
-        currentPrice += change;
-        prices.unshift(currentPrice);
-        timestamps.unshift(new Date(Date.now() - i * 60 * 1000).toISOString());
+        const open = lastClose;
+        const change = (Math.random() - 0.49) * open * volatility;
+        const close = open + change;
+        
+        const highWick = Math.abs(change) * Math.random() * 0.5;
+        const lowWick = Math.abs(change) * Math.random() * 0.5;
+
+        const high = Math.max(open, close) + highWick;
+        const low = Math.min(open, close) - lowWick;
+
+        candles.unshift({
+            time: new Date(now - i * minutesInterval * 60 * 1000).toISOString(),
+            open: parseFloat(open.toFixed(4)),
+            high: parseFloat(high.toFixed(4)),
+            low: parseFloat(low.toFixed(4)),
+            close: parseFloat(close.toFixed(4)),
+        });
+
+        lastClose = close;
     }
-    return { prices, timestamps };
-}
+    return candles;
+};
+
 
 export const MOCK_TRADE_VIEW_DATA: TradeViewData = {
     'BTC/USD': {
-        '5m': generateCandleData(69123.45, 288, 0.0005), // 24 hours of 5m candles
-        '15m': generateCandleData(69123.45, 96, 0.001), // 24 hours of 15m candles
-        '1h': generateCandleData(69123.45, 24, 0.002), // 24 hours of 1h candles
-        '4h': generateCandleData(69123.45, 30, 0.005), // 5 days of 4h candles
+        '5m': generateCandleData(69123.45, 288, 0.001, 5), // 24 hours of 5m candles
+        '15m': generateCandleData(69123.45, 96, 0.002, 15), // 24 hours of 15m candles
+        '1h': generateCandleData(69123.45, 72, 0.004, 60), // 3 days of 1h candles
+        '4h': generateCandleData(69123.45, 60, 0.008, 240), // 10 days of 4h candles
     },
     'ETH/USD': {
-        '5m': generateCandleData(3690.12, 288, 0.0006),
-        '15m': generateCandleData(3690.12, 96, 0.0012),
-        '1h': generateCandleData(3690.12, 24, 0.0025),
-        '4h': generateCandleData(3690.12, 30, 0.006),
+        '5m': generateCandleData(3690.12, 288, 0.0012, 5),
+        '15m': generateCandleData(3690.12, 96, 0.0025, 15),
+        '1h': generateCandleData(3690.12, 72, 0.005, 60),
+        '4h': generateCandleData(3690.12, 60, 0.01, 240),
     },
     'SOL/USD': {
-        '5m': generateCandleData(162.40, 288, 0.0008),
-        '15m': generateCandleData(162.40, 96, 0.0015),
-        '1h': generateCandleData(162.40, 24, 0.003),
-        '4h': generateCandleData(162.40, 30, 0.008),
+        '5m': generateCandleData(162.40, 288, 0.0015, 5),
+        '15m': generateCandleData(162.40, 96, 0.003, 15),
+        '1h': generateCandleData(162.40, 72, 0.006, 60),
+        '4h': generateCandleData(162.40, 60, 0.012, 240),
     },
     'NGN/USD': {
-        '5m': generateCandleData(0.00067, 288, 0.0009),
-        '15m': generateCandleData(0.00067, 96, 0.0018),
-        '1h': generateCandleData(0.00067, 24, 0.0035),
-        '4h': generateCandleData(0.00067, 30, 0.009),
+        '5m': generateCandleData(0.00067, 288, 0.0018, 5),
+        '15m': generateCandleData(0.00067, 96, 0.0035, 15),
+        '1h': generateCandleData(0.00067, 72, 0.007, 60),
+        '4h': generateCandleData(0.00067, 60, 0.015, 240),
     },
 };
 
@@ -121,8 +137,10 @@ ADVANCED_CFG = {
     
     # ML Regime Settings
     "ml_train_period": "1y",
-    "ml_retrain_frequency": 50,  # retrain every 50 bars
     "regime_classes": 3,  # ranging, trending, volatile
+    "ml_performance_window": 100, # Bars to check accuracy
+    "ml_accuracy_threshold": 0.60, # Min accuracy to prevent retraining
+    "ml_volatility_change_threshold": 0.40, # % change in vol to trigger retrain
     
     # Adaptive Parameters
     "adaptive_slippage": True,
@@ -147,6 +165,8 @@ class MarketRegimeMLClassifier:
         self.regimes = {0: "ranging", 1: "trending", 2: "volatile"}
         self.last_retrain_bar = 0
         self.needs_retraining = True
+        self.prediction_history = []
+        self.last_avg_volatility = 0
         
     def extract_features(self, df: pd.DataFrame, lookback: int = 100) -> pd.DataFrame:
         """Extract features for ML classification"""
@@ -205,9 +225,9 @@ class MarketRegimeMLClassifier:
         labels.extend([0] * lookback)
         return np.array(labels[:len(df)])
     
-    def train(self, df: pd.DataFrame):
+    def train(self, df: pd.DataFrame, bar_idx: int):
         """Train ML model on historical data"""
-        print("🤖 Training ML regime classifier...")
+        print(f"🤖 Training ML regime classifier at bar {bar_idx}...")
         
         features = self.extract_features(df)
         if features is None or len(features) < 100:
@@ -235,11 +255,55 @@ class MarketRegimeMLClassifier:
         self.model.fit(X_train_scaled, y_train)
         
         accuracy = self.model.score(X_test_scaled, y_test)
-        print(f"✅ ML Model trained. Test accuracy: \${accuracy:.2%}")
+        print(f"✅ ML Model trained. Test accuracy: {accuracy:.2%}")
         
         self.needs_retraining = False
+        self.last_retrain_bar = bar_idx
+        self.prediction_history = [] # Reset history after training
+        self.last_avg_volatility = df['atr_pct'].rolling(50).mean().iloc[-1]
+        
         return True
     
+    def check_retraining_needed(self, df: pd.DataFrame, bar_idx: int, all_labels: np.ndarray) -> bool:
+        """Check if the model needs retraining based on performance or volatility"""
+        if self.model is None:
+            return True # Initial training
+
+        # Fallback: Retrain every 500 bars regardless
+        if bar_idx - self.last_retrain_bar > 500:
+            print("⏳ Retraining based on fixed interval fallback.")
+            return True
+
+        # 1. Volatility Change Check
+        current_avg_volatility = df['atr_pct'].rolling(50).mean().iloc[bar_idx]
+        if self.last_avg_volatility > 0:
+            vol_change = abs(current_avg_volatility - self.last_avg_volatility) / self.last_avg_volatility
+            if vol_change > self.cfg['ml_volatility_change_threshold']:
+                print(f"Volatility change of {vol_change:.2%} detected. Retraining needed.")
+                return True
+
+        # 2. Performance Degradation Check
+        window = self.cfg['ml_performance_window']
+        if len(self.prediction_history) >= window:
+            correct_predictions = 0
+            # Evaluate the last 'window' predictions
+            eval_preds = self.prediction_history[-window:]
+            
+            for pred_item in eval_preds:
+                p_bar, p_code = pred_item['bar'], pred_item['prediction']
+                
+                # The label for p_bar is known at p_bar+20, but for backtesting simplicity we use pre-calculated labels
+                actual_label = all_labels[p_bar]
+                if p_code == actual_label:
+                    correct_predictions += 1
+            
+            accuracy = correct_predictions / window
+            if accuracy < self.cfg['ml_accuracy_threshold']:
+                print(f"Model accuracy dropped to {accuracy:.2%}. Retraining needed.")
+                return True
+
+        return False
+
     def predict_regime(self, df: pd.DataFrame, bar_idx: int) -> Dict[str, Any]:
         """Predict current market regime"""
         if self.model is None or bar_idx < 100:
@@ -263,6 +327,9 @@ class MarketRegimeMLClassifier:
             
             regime = self.regimes.get(regime_code, 'neutral')
             
+            # Record prediction for performance tracking
+            self.prediction_history.append({'bar': bar_idx, 'prediction': regime_code})
+            
             # Volatility bias for position sizing
             volatility_bias = df['atr_pct'].iloc[-1] / df['atr_pct'].rolling(50).mean().iloc[-1]
             
@@ -273,7 +340,7 @@ class MarketRegimeMLClassifier:
                 'volatility_bias': volatility_bias
             }
         except Exception as e:
-            print(f"⚠️  Regime prediction error: \${e}")
+            print(f"⚠️  Regime prediction error: {e}")
             return {'regime': 'neutral', 'regime_code': 0, 'confidence': 0.5, 'volatility_bias': 1.0}
 
 # ============================================================================
@@ -381,7 +448,7 @@ class MultiTimeframeAnalyzer:
                 df = ticker.history(period="2y", interval=tf)
                 
                 if df.empty:
-                    print(f"⚠️  No data for \${tf}")
+                    print(f"⚠️  No data for {tf}")
                     continue
                 
                 # Clean data
@@ -396,12 +463,12 @@ class MultiTimeframeAnalyzer:
                 # Calculate indicators
                 df = self.indicators.calculate_all(df)
                 data[tf] = df
-                print(f"✅ \${tf}: \${len(df)} bars loaded")
+                print(f"✅ {tf}: {len(df)} bars loaded")
                 
                 time.sleep(1)  # Rate limiting
                 
             except Exception as e:
-                print(f"❌ Error fetching \${tf}: \${e}")
+                print(f"❌ Error fetching {tf}: {e}")
         
         return data
     
@@ -650,13 +717,15 @@ class AdvancedTradingBot:
         
         self.trades = []
         self.equity_curve = [cfg['capital']]
+        self.equity_curve_timestamps = []
         self.account_balance = cfg['capital']
         
     def run_full_backtest(self):
         """Run complete backtest with all features"""
         print("🚀 Starting Advanced Trading Bot Backtest")
-        print(f"📈 Symbol: \${self.cfg['symbol']}")
-        print(f"💰 Capital: $\${self.cfg['capital']:,.2f}")
+        print(f"📈 Symbol: {self.cfg['symbol']}")
+        # FIX: Corrected invalid Python f-string syntax that was breaking the TS template literal. The '$' was removed.
+        print(f"💰 Capital: {self.cfg['capital']:,.2f}")
         print("⏳ This may take a few minutes...\\n")
         
         # Fetch multi-timeframe data
@@ -666,42 +735,41 @@ class AdvancedTradingBot:
             print("❌ Failed to fetch data")
             return
         
-        # Train ML model
-        if self.cfg['signal_tf'] in data_dict:
-            self.ml_classifier.train(data_dict[self.cfg['signal_tf']])
-        
-        # Run backtest on signal timeframe
+        # Use signal timeframe for backtest
         signal_df = data_dict.get(self.cfg['signal_tf'])
         if signal_df is None or len(signal_df) < 200:
             print("❌ Insufficient data for backtest")
             return
+            
+        # Pre-calculate all ML labels for performance evaluation
+        all_labels = self.ml_classifier.generate_labels(signal_df)
+        
+        # Initial ML model training
+        self.ml_classifier.train(signal_df, 0)
         
         print("\\n" + "="*60)
         print("🎯 RUNNING BACKTEST WITH ADVANCED FEATURES")
         print("="*60 + "\\n")
         
         position = None
-        entry_price = 0.0
-        position_size = 0.0
         consecutive_losses = 0
-        ml_retrain_counter = 0
         
         test_period = len(signal_df) // 3  # Use last 1/3 for testing
         test_start_idx = len(signal_df) - test_period
         
-        print(f"📊 Backtesting on \${test_period} bars\\n")
+        self.equity_curve_timestamps.append(signal_df.index[test_start_idx -1])
+        
+        print(f"📊 Backtesting on {test_period} bars\\n")
         
         for i in range(test_start_idx, len(signal_df)):
             current_price = signal_df['close'].iloc[i]
             current_date = signal_df.index[i]
             
-            # ML model retraining
-            ml_retrain_counter += 1
-            if ml_retrain_counter >= self.cfg['ml_retrain_frequency']:
-                self.ml_classifier.train(signal_df[:i])
-                ml_retrain_counter = 0
+            # Check if ML model needs adaptive retraining
+            if self.ml_classifier.check_retraining_needed(signal_df, i, all_labels):
+                self.ml_classifier.train(signal_df[:i+1], i)
             
-            # Get market regime from ML
+            # Get market regime from ML (which also records the prediction)
             regime = self.ml_classifier.predict_regime(signal_df, i)
             
             # Adapt parameters
@@ -713,11 +781,14 @@ class AdvancedTradingBot:
             
             # Manage existing position
             if position:
-                exit_result = self._manage_position_exit(
-                    position, entry_price, position_size, current_price, adapted_params
+                updated_position, trade_outcome = self._manage_position_exit(
+                    position, current_price, signal_df.iloc[i], adapted_params
                 )
-                if exit_result:
-                    position, consecutive_losses = exit_result
+                position = updated_position  # Update position state (could be None if closed)
+                if trade_outcome == 1:  # Loss
+                    consecutive_losses += 1
+                elif trade_outcome == -1:  # Win
+                    consecutive_losses = 0
             
             # Generate new signals
             if position is None and self.correlation_tracker.can_add_position():
@@ -732,13 +803,14 @@ class AdvancedTradingBot:
                         )
                         
                         if entry_result:
-                            position, entry_price, position_size = entry_result
+                            position = entry_result
                             self.correlation_tracker.add_position(
-                                self.cfg['symbol'], position, entry_price
+                                self.cfg['symbol'], position['type'], position['entry_price']
                             )
             
             # Update tracking
             self.equity_curve.append(self.account_balance)
+            self.equity_curve_timestamps.append(current_date)
             if position:
                 self.correlation_tracker.update_prices(self.cfg['symbol'], current_price)
         
@@ -750,98 +822,173 @@ class AdvancedTradingBot:
         drawdown = (max(self.equity_curve) - self.account_balance) / max(self.equity_curve)
         
         if drawdown > self.cfg['max_drawdown_allowed']:
-            print(f"🛑 Max drawdown exceeded: \${drawdown:.2%}")
+            print(f"🛑 Max drawdown exceeded: {drawdown:.2%}")
             return False
         
         if consecutive_losses > self.cfg['max_consecutive_losses']:
-            print(f"🛑 Too many consecutive losses: \${consecutive_losses}")
+            print(f"🛑 Too many consecutive losses: {consecutive_losses}")
             return False
         
         return True
     
     def _enter_position(self, signal: str, price: float, bar: pd.Series, 
-                       params: Dict, regime: Dict) -> Optional[Tuple]:
-        """Enter new position"""
+                       params: Dict, regime: Dict) -> Optional[Dict]:
+        """Enter new position with dynamic sizing and risk management."""
         atr_distance = bar['atr'] * params['atr_multiplier']
-        stop_price = (price - atr_distance) if signal == 'LONG' else (price + atr_distance)
         
-        # Risk-based position sizing
+        if signal == 'LONG':
+            stop_loss_price = price - atr_distance
+        else: # SHORT
+            stop_loss_price = price + atr_distance
+            
+        price_risk = abs(price - stop_loss_price)
+        if price_risk <= 0:
+            return None
+        
+        # Take profit calculation
+        reward_distance = price_risk * self.cfg['risk_reward_ratio']
+        if signal == 'LONG':
+            take_profit_price = price + reward_distance
+        else: # SHORT
+            take_profit_price = price - reward_distance
+            
+        # Dynamic, risk-based position sizing
         risk_amount = self.account_balance * self.cfg['max_risk_per_trade'] * params['risk_multiplier']
-        price_risk = abs(price - stop_price)
+        position_size = risk_amount / price_risk
         
-        if price_risk > 0:
-            position_size = risk_amount / price_risk
+        # Portfolio risk limit
+        max_position_value = self.account_balance * self.cfg['max_portfolio_risk']
+        position_size = min(position_size, max_position_value / price)
+        
+        # FIX: Corrected invalid Python f-string syntax that was breaking the TS template literal. The '$' was removed.
+        print(f"📈 ENTER {signal} at {price:.2f} | Size: {position_size:.2f} | SL: {stop_loss_price:.2f} | TP: {take_profit_price:.2f} | Regime: {regime['regime']}")
+        
+        return {
+            "type": signal,
+            "entry_price": price,
+            "size": position_size,
+            "stop_loss": stop_loss_price,
+            "take_profit": take_profit_price
+        }
+
+    def _manage_position_exit(self, position: Dict, current_price: float, 
+                            bar: pd.Series, params: Dict) -> Tuple[Optional[Dict], int]:
+        """
+        Manage position exit with trailing stop-loss and take-profit.
+        Returns a tuple: (updated_position or None, trade_outcome).
+        trade_outcome: 1 for loss, -1 for win, 0 for no trade.
+        """
+        pnl = 0
+        exit_reason = None
+        atr_distance = bar['atr'] * params['atr_multiplier']
+
+        # --- Trailing Stop-Loss Logic ---
+        if position['type'] == 'LONG':
+            # Trail the stop loss up
+            new_stop_loss = current_price - atr_distance
+            if new_stop_loss > position['stop_loss']:
+                position['stop_loss'] = new_stop_loss
             
-            # Portfolio limit
-            max_position_value = self.account_balance * self.cfg['max_portfolio_risk']
-            position_size = min(position_size, max_position_value / price)
+            # Check for exit conditions
+            if current_price <= position['stop_loss']:
+                exit_reason = "Stop-Loss"
+            elif current_price >= position['take_profit']:
+                exit_reason = "Take-Profit"
+                
+        elif position['type'] == 'SHORT':
+            # Trail the stop loss down
+            new_stop_loss = current_price + atr_distance
+            if new_stop_loss < position['stop_loss']:
+                position['stop_loss'] = new_stop_loss
+                
+            # Check for exit conditions
+            if current_price >= position['stop_loss']:
+                exit_reason = "Stop-Loss"
+            elif current_price <= position['take_profit']:
+                exit_reason = "Take-Profit"
+
+        # If an exit condition was met, process the trade closure
+        if exit_reason:
+            if position['type'] == 'LONG':
+                pnl = (current_price - position['entry_price']) * position['size']
+            else:  # SHORT
+                pnl = (position['entry_price'] - current_price) * position['size']
             
-            print(f"📈 \${signal} at $\${price:.2f} | Size: \${position_size:.2f} | Regime: \${regime['regime']}")
-            return signal, price, position_size
-        
-        return None
-    
-    def _manage_position_exit(self, position: str, entry_price: float, 
-                            position_size: float, current_price: float,
-                            params: Dict) -> Optional[Tuple]:
-        """Manage position exit with ensemble signals"""
-        # Simple ATR-based exit for demo
-        atr_distance = params['atr_multiplier'] * abs(current_price * 0.02)  # Simplified
-        
-        if position == 'LONG' and current_price < entry_price - atr_distance:
-            pnl = (current_price - entry_price) * position_size
             self.account_balance += pnl
             self.trades.append({
-                'entry': entry_price,
+                'entry': position['entry_price'],
                 'exit': current_price,
                 'pnl': pnl,
-                'type': position
+                'type': position['type']
             })
-            consecutive_losses = 1 if pnl < 0 else 0
-            print(f"📤 Close \${position} at $\${current_price:.2f} | P&L: $\${pnl:.2f}")
+            
+            trade_outcome = -1 if pnl >= 0 else 1  # -1 for win/breakeven, 1 for loss
+            
+            # FIX: Corrected invalid Python f-string syntax that was breaking the TS template literal. The '$' was removed.
+            print(f"📤 CLOSE {position['type']} at {current_price:.2f} ({exit_reason}) | P&L: {pnl:.2f}")
             self.correlation_tracker.remove_position(self.cfg['symbol'])
-            return None, consecutive_losses
+            
+            # Return None to indicate position is closed, and the trade outcome
+            return None, trade_outcome
         
-        elif position == 'SHORT' and current_price > entry_price + atr_distance:
-            pnl = (entry_price - current_price) * position_size
-            self.account_balance += pnl
-            self.trades.append({
-                'entry': entry_price,
-                'exit': current_price,
-                'pnl': pnl,
-                'type': position
-            })
-            consecutive_losses = 1 if pnl < 0 else 0
-            print(f"📤 Close \${position} at $\${current_price:.2f} | P&L: $\${pnl:.2f}")
-            self.correlation_tracker.remove_position(self.cfg['symbol'])
-            return None, consecutive_losses
-        
-        return None
+        # Position is still open, return it with potentially updated stop-loss
+        return position, 0
     
     def _generate_results(self):
         """Generate comprehensive results report"""
-        if len(self.equity_curve) < 2 or len(self.trades) == 0:
-            print("❌ No trades executed - insufficient data for analysis")
+        if len(self.equity_curve) < 2 or not self.trades:
+            print("---SUMMARY_JSON---")
+            print(json.dumps({"error": "No trades were executed during the backtest."}))
+            print("---EQUITY_CSV---")
+            print("timestamp,equity\\n")
             return
-        
+
         final_equity = self.account_balance
         total_return = (final_equity / self.cfg['capital']) - 1
-        
         df_trades = pd.DataFrame(self.trades)
+        wins = df_trades[df_trades['pnl'] > 0]
+        losses = df_trades[df_trades['pnl'] < 0]
+        total_trades = len(df_trades)
+        win_rate = len(wins) / total_trades if total_trades > 0 else 0
+        avg_win = wins['pnl'].mean()
+        avg_loss = losses['pnl'].mean()
+        profit_factor = abs(wins['pnl'].sum() / losses['pnl'].sum()) if losses['pnl'].sum() != 0 else float('inf')
         
-        if len(df_trades) > 0:
-            wins = df_trades[df_trades['pnl'] > 0]
-            losses = df_trades[df_trades['pnl'] < 0]
-            
-            total_trades = len(df_trades)
-            win_rate = len(wins) / total_trades if total_trades > 0 else 0
-            avg_win = wins['pnl'].mean() if len(wins) > 0 else 0
-            avg_loss = losses['pnl'].mean() if len(losses) > 0 else 1
-            profit_factor = abs(wins['pnl'].sum() / losses['pnl'].sum()) if len(losses) > 0 else float('inf')
-            
-            # Risk metrics
-            equity_series = pd.Series(self.equity_curve)
-            returns = equity_series.pct_change().dropna()
-            
-            sharpe = returns.mean() / returns
-`}
+        equity_series = pd.Series(self.equity_curve[1:], index=pd.to_datetime(self.equity_curve_timestamps))
+        returns = equity_series.pct_change().dropna()
+        max_drawdown = (equity_series.cummax() - equity_series).max() / equity_series.cummax().max()
+        sharpe = (returns.mean() / returns.std()) * np.sqrt(252) if returns.std() > 0 else 0
+
+        summary_data = {
+            "final_equity": final_equity, "total_return_pct": total_return, "n_trades": total_trades,
+            "wins": len(wins), "win_rate": win_rate, "avg_win": avg_win, "avg_loss": avg_loss,
+            "profit_factor": profit_factor, "max_consecutive_losses": 0,  # Placeholder
+            "max_drawdown": max_drawdown, "sharpe": sharpe,
+        }
+
+        # Clean NaNs and Infs for JSON compatibility
+        for key, value in summary_data.items():
+            if pd.isna(value) or value in [float('inf'), float('-inf')]:
+                summary_data[key] = 0
+        
+        print("---SUMMARY_JSON---")
+        print(json.dumps(summary_data))
+
+        print("---EQUITY_CSV---")
+        equity_df = pd.DataFrame({'timestamp': self.equity_curve_timestamps, 'equity': self.equity_curve[1:]})
+        print(equity_df.to_csv(index=False))
+
+# ============================================================================
+# MAIN EXECUTION BLOCK
+# ============================================================================
+if __name__ == "__main__":
+    try:
+        bot = AdvancedTradingBot(ADVANCED_CFG)
+        bot.run_full_backtest()
+    except Exception as e:
+        error_summary = {"error": f"An unexpected error occurred: {str(e)}"}
+        print("---SUMMARY_JSON---")
+        print(json.dumps(error_summary))
+        print("---EQUITY_CSV---")
+        print("timestamp,equity\\n")
+`;

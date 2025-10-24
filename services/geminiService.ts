@@ -1,5 +1,3 @@
-
-
 import { GoogleGenAI, Type } from "@google/genai";
 import type { AnalysisResult, Recommendation, BacktestResult } from '../types';
 
@@ -278,6 +276,41 @@ export async function generateLiveBotScript(strategyCode: string): Promise<strin
     --- BASE STRATEGY SCRIPT (for logic reference) ---
     \`\`\`python
     ${strategyCode}
+    \`\`\`
+    `;
+
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+    });
+    
+    let finalCode = response.text.trim();
+    // Clean up potential markdown formatting from the response
+    if (finalCode.startsWith('```python')) {
+      finalCode = finalCode.substring(9);
+    }
+    if (finalCode.endsWith('```')) {
+      finalCode = finalCode.substring(0, finalCode.length - 3);
+    }
+
+    return finalCode.trim();
+}
+
+export async function formatCode(code: string): Promise<string> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+    const prompt = `
+    You are an expert Python code formatter. Your task is to reformat the provided Python script to be compliant with the PEP 8 style guide.
+
+    **Instructions:**
+    1.  Analyze the provided Python code for any style inconsistencies (e.g., indentation, spacing, line length, import order).
+    2.  Apply formatting changes to align the code with PEP 8 standards.
+    3.  **DO NOT** change the logic, variable names, or functionality of the code in any way. This is a purely stylistic task.
+    4.  The final output must be ONLY the complete, raw, reformatted Python script.
+    5.  Do not include any explanations, comments, or markdown formatting like \`\`\`python.
+
+    --- PYTHON SCRIPT TO FORMAT ---
+    \`\`\`python
+    ${code}
     \`\`\`
     `;
 

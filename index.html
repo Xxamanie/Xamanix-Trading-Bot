@@ -19,15 +19,27 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code&display=swap" rel="stylesheet">
+    
+    <!-- Code Editor Syntax Highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-okaidia.min.css" rel="stylesheet" />
+
+    <!-- Chart.js and necessary plugins -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@3.6.0/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.0/dist/chartjs-chart-financial.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    
   <script type="importmap">
 {
   "imports": {
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.23.0"
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.23.0",
+    "react-simple-code-editor": "https://esm.sh/react-simple-code-editor@0.13.1"
   }
 }
 </script>
@@ -35,10 +47,59 @@
     body {
       font-family: 'Inter', sans-serif;
     }
+    
+    /* Code Editor Styles */
+    .editor {
+      font-family: 'Fira Code', monospace !important;
+      font-size: 14px;
+      line-height: 21px; /* Crucial for line number alignment */
+      caret-color: white;
+    }
+    
+    .editor > textarea, .editor > pre {
+       white-space: pre !important;
+       word-wrap: normal !important;
+       overflow-wrap: normal !important;
+    }
+    
+    .editor-container .token.comment, 
+    .editor-container .token.prolog, 
+    .editor-container .token.doctype, 
+    .editor-container .token.cdata {
+      color: #6a9955; /* Green for comments */
+    }
+
+    .editor-container pre[class*="language-"] {
+      background: transparent !important;
+      margin: 0;
+      padding: 0 !important;
+    }
+
+    .line-numbers {
+      font-family: 'Fira Code', monospace;
+      font-size: 14px;
+      line-height: 21px; /* Must match .editor */
+      padding: 10px;
+      text-align: right;
+      color: #5f7e97; /* Line number color */
+      background-color: #1f2937;
+      user-select: none;
+      -webkit-user-select: none;
+      border-right: 1px solid #374151;
+    }
+
+    .editor-container .editor > textarea:focus {
+      outline: none;
+    }
   </style>
 </head>
   <body class="bg-gray-900 text-gray-100">
     <div id="root"></div>
+    <!-- PrismJS for syntax highlighting -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+    <script>Prism.plugins.autoloader.languages_path = 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/';</script>
+
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>

@@ -1,18 +1,37 @@
-
 import React, { useState } from 'react';
-import { CopyIcon, CheckIcon, LoadingIcon, PlayIcon, RocketIcon } from './icons';
+import Editor from 'react-simple-code-editor';
+import { CopyIcon, CheckIcon, LoadingIcon, PlayIcon, RocketIcon, WandSparklesIcon } from './icons';
+
+// Prism is loaded globally from index.html
+declare const Prism: any;
 
 interface CodeViewerProps {
   title: string;
   code: string;
+  onCodeChange?: (newCode: string) => void;
+  readOnly?: boolean;
   isLoading?: boolean;
   isBacktestRunning?: boolean;
   onRunBacktest?: () => void;
   onExportScript?: () => void;
   isExporting?: boolean;
+  onFormatCode?: () => void;
+  isFormatting?: boolean;
 }
 
-export default function CodeViewer({ title, code, isLoading = false, isBacktestRunning = false, onRunBacktest, onExportScript, isExporting = false }: CodeViewerProps): React.ReactElement {
+export default function CodeViewer({ 
+  title, 
+  code, 
+  isLoading = false, 
+  isBacktestRunning = false, 
+  onRunBacktest, 
+  onExportScript, 
+  isExporting = false,
+  onCodeChange,
+  readOnly = false,
+  onFormatCode,
+  isFormatting = false,
+}: CodeViewerProps): React.ReactElement {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -28,24 +47,17 @@ export default function CodeViewer({ title, code, isLoading = false, isBacktestR
       <div className="flex justify-between items-center p-4 border-b border-gray-700 flex-shrink-0">
         <h2 className="text-lg font-semibold text-white">{title}</h2>
         <div className="flex items-center space-x-2">
-           {onExportScript && (
-             <div className="relative group">
-                <button
-                  onClick={onExportScript}
-                  disabled={isExporting || !code}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center transition-colors bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600/50 disabled:text-gray-400 disabled:cursor-not-allowed text-white`}
-                >
-                    {isExporting ? <LoadingIcon /> : <RocketIcon />}
-                    <span className="ml-2">{isExporting ? 'Exporting...' : 'Export Live Bot Script'}</span>
-                </button>
-                {!code && (
-                    <div className="absolute bottom-full mb-2 w-max bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                        Generate the enhanced script to enable export.
-                    </div>
-                )}
-             </div>
+           {onFormatCode && (
+             <button
+                onClick={onFormatCode}
+                disabled={isFormatting || !code || isLoading || isBacktestRunning || isExporting}
+                className="bg-gray-700 hover:bg-gray-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-md text-sm font-medium flex items-center transition-colors"
+             >
+                {isFormatting ? <LoadingIcon /> : <WandSparklesIcon />}
+                <span className="ml-2">{isFormatting ? 'Formatting...' : 'Format'}</span>
+             </button>
            )}
-          {onRunBacktest && (
+           {onRunBacktest && (
             <button
               onClick={onRunBacktest}
               disabled={!code || isBacktestRunning || isLoading}
@@ -59,6 +71,23 @@ export default function CodeViewer({ title, code, isLoading = false, isBacktestR
               <span className="ml-2">{isBacktestRunning ? 'Running...' : 'Run Backtest'}</span>
             </button>
           )}
+           {onExportScript && (
+             <div className="relative group">
+                <button
+                  onClick={onExportScript}
+                  disabled={isExporting || !code}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center transition-colors bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600/50 disabled:text-gray-400 disabled:cursor-not-allowed text-white`}
+                >
+                    {isExporting ? <LoadingIcon /> : <RocketIcon />}
+                    <span className="ml-2">{isExporting ? 'Exporting...' : 'Export Script'}</span>
+                </button>
+                {!code && (
+                    <div className="absolute bottom-full mb-2 w-max bg-gray-700 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                        Generate script to enable export.
+                    </div>
+                )}
+             </div>
+           )}
           <button
             onClick={handleCopy}
             disabled={!code || isLoading}
@@ -69,18 +98,34 @@ export default function CodeViewer({ title, code, isLoading = false, isBacktestR
           </button>
         </div>
       </div>
-      <div className="p-4 overflow-auto flex-grow relative min-h-0">
+      <div className="overflow-auto flex-grow relative min-h-0 editor-container">
         {isLoading ? (
-            <div className="absolute inset-0 bg-gray-800 bg-opacity-75 flex flex-col items-center justify-center">
+            <div className="absolute inset-0 bg-gray-800 bg-opacity-75 flex flex-col items-center justify-center z-10">
                 <LoadingIcon />
                 <p className="mt-4 text-lg font-semibold text-cyan-400">Generating enhanced script...</p>
             </div>
         ) : code ? (
-          <pre className="text-sm text-gray-300 whitespace-pre-wrap break-words">
-            <code>{code}</code>
-          </pre>
+          <div className="relative h-full w-full bg-gray-900 rounded-b-lg overflow-auto flex">
+            <pre className="line-numbers" aria-hidden="true">
+                {code.split('\n').map((_, i) => i + 1).join('\n')}
+            </pre>
+            <Editor
+                value={code}
+                onValueChange={onCodeChange || (() => {})}
+                highlight={(code) => Prism.highlight(code, Prism.languages.python, 'python')}
+                padding={10}
+                readOnly={readOnly || !onCodeChange}
+                className="editor flex-grow"
+                textareaClassName="outline-none"
+                style={{
+                    fontFamily: '"Fira Code", monospace',
+                    fontSize: 14,
+                    lineHeight: '21px',
+                }}
+            />
+          </div>
         ) : (
-          <div className="flex items-center justify-center h-full">
+          <div className="flex items-center justify-center h-full p-4">
             <p className="text-gray-500">Generate script to view and export.</p>
           </div>
         )}

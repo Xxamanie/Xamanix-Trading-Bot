@@ -1,4 +1,5 @@
 
+
 import type { Asset, Position, ClosedTrade } from '../types';
 
 // This service provides a live connection to the Bybit v5 API.
@@ -156,6 +157,7 @@ interface ExecuteTradeDetails {
     amountUSD: number;
     orderType: 'Market' | 'Limit';
     limitPrice?: string;
+    takeProfit?: { type: 'Price' | 'Percentage', value: string };
 }
 
 export const executeLiveTrade = async (details: ExecuteTradeDetails, apiKey: string, apiSecret: string, environment: 'testnet' | 'mainnet'): Promise<void> => {
@@ -185,6 +187,23 @@ export const executeLiveTrade = async (details: ExecuteTradeDetails, apiKey: str
         order.price = details.limitPrice;
     }
 
+    if (details.takeProfit && details.takeProfit.value && parseFloat(details.takeProfit.value) > 0) {
+        let tpPrice = 0;
+        const tpValue = parseFloat(details.takeProfit.value);
+        const entryPrice = priceForQtyCalc;
+
+        if (details.takeProfit.type === 'Price') {
+            tpPrice = tpValue;
+        } else { // Percentage
+            const percentage = tpValue / 100;
+            if (details.direction === 'LONG') {
+                tpPrice = entryPrice * (1 + percentage);
+            } else { // SHORT
+                tpPrice = entryPrice * (1 - percentage);
+            }
+        }
+        order.takeProfit = tpPrice.toFixed(2);
+    }
 
     await makeRequest('POST', '/v5/order/create', order, apiKey, apiSecret, environment);
 };
