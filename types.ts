@@ -115,3 +115,20 @@ export interface Order {
   quantity: number;
   total: number;
 }
+
+// Types for Live Bot Deployment
+export interface LogEntry {
+  timestamp: string;
+  message: string;
+  level: 'INFO' | 'WARN' | 'ERROR' | 'TRADE';
+}
+
+export interface DeployedBot {
+  id: string;
+  symbol: string;
+  status: 'running' | 'stopped' | 'error';
+  startTime: string; // ISO string for initial deployment time
+  pnl: number;
+  logs: LogEntry[];
+  intervalId?: number;
+}

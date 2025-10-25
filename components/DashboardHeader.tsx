@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { useAPI } from '../contexts/APIContext';
 import { ExclamationTriangleIcon } from './icons';
@@ -28,8 +27,8 @@ const StatusIndicator: React.FC<{ label: string; status: 'positive' | 'neutral' 
 const DashboardHeader: React.FC<{
     currentView: string;
     isConnected: boolean;
-    isBotSimulating: boolean;
-}> = ({ currentView, isConnected, isBotSimulating }) => {
+    activeBotCount: number;
+}> = ({ currentView, isConnected, activeBotCount }) => {
     const { environment } = useAPI();
     const title = currentView.charAt(0).toUpperCase() + currentView.slice(1);
 
@@ -46,8 +45,8 @@ const DashboardHeader: React.FC<{
             <div className="flex items-center space-x-6">
                  <StatusIndicator 
                     label="AI Deployment"
-                    status={isBotSimulating ? 'positive' : 'negative'}
-                    text={isBotSimulating ? 'Active' : 'Inactive'}
+                    status={activeBotCount > 0 ? 'positive' : 'negative'}
+                    text={activeBotCount > 0 ? `${activeBotCount} Active` : 'Inactive'}
                     tooltip="Deploy a bot from the 'Strategy' tab."
                 />
                  <StatusIndicator 

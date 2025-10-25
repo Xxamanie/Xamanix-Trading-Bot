@@ -1,12 +1,9 @@
 
-
-
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification, Order } from './types';
+import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification, Order, DeployedBot, LogEntry } from './types';
 // FIX: Import `DEFAULT_SCRIPT` to resolve "Cannot find name 'DEFAULT_SCRIPT'" error.
 import { MOCK_PORTFOLIO_HISTORY, MOCK_ASSETS, MOCK_POSITIONS, MOCK_TRADE_VIEW_DATA, MOCK_INITIAL_ORDERBOOK, DEFAULT_SCRIPT } from './constants';
-import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, PlayIcon, StopIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon, ExclamationTriangleIcon, BellIcon, ExternalLinkIcon, ShieldCheckIcon, LinkIcon, WandSparklesIcon, SpeakerWaveIcon } from './components/icons';
+import { DashboardIcon, WalletIcon, SettingsIcon, TradeIcon, UserIcon, CheckCircleIcon, ArrowTrendingUpIcon, ChartBarIcon, SparklesIcon, LoadingIcon, PlayIcon, StopIcon, RocketIcon, CloseIcon, LightBulbIcon, InfoIcon, ProfitIcon, LossIcon, HistoryIcon, AboutIcon, ContactIcon, AdminIcon, ExclamationTriangleIcon, BellIcon, ExternalLinkIcon, ShieldCheckIcon, LinkIcon, WandSparklesIcon, SpeakerWaveIcon, ServerIcon } from './components/icons';
 import RecommendationsPanel from './components/RecommendationsPanel';
 import BacktestResults from './components/BacktestResults';
 import CodeViewer from './components/CodeViewer';
@@ -32,19 +29,23 @@ export interface ActivityLogEntry {
 // REUSABLE UI COMPONENTS
 // ============================================================================
 
-const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
-  <div className={`bg-gray-800/50 border border-gray-700 rounded-xl shadow-lg ${className}`}>
+// FIX: Update Card component to accept additional HTML attributes like onClick, by spreading props to the underlying div.
+const Card: React.FC<{ children: React.ReactNode; className?: string } & React.HTMLAttributes<HTMLDivElement>> = ({ children, className = '', ...props }) => (
+  <div className={`bg-gray-800/50 border border-gray-700 rounded-xl shadow-lg ${className}`} {...props}>
     {children}
   </div>
 );
 
-const Button: React.FC<{ children: React.ReactNode; onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void; type?: 'button' | 'submit' | 'reset'; variant?: 'primary' | 'secondary'; className?: string; disabled?: boolean; }> = ({ children, onClick, type = 'button', variant = 'secondary', className = '', disabled = false }) => {
+const Button: React.FC<{ children: React.ReactNode; onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void; type?: 'button' | 'submit' | 'reset'; variant?: 'primary' | 'secondary' | 'danger'; className?: string; disabled?: boolean; }> = ({ children, onClick, type = 'button', variant = 'secondary', className = '', disabled = false }) => {
   const baseClasses = 'px-4 py-2 rounded-md font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed';
-  const variantClasses = variant === 'primary'
-    ? 'bg-cyan-500 text-white hover:bg-cyan-600 focus:ring-cyan-500'
-    : 'bg-gray-700 text-gray-200 hover:bg-gray-600 focus:ring-gray-500';
-  return <button type={type} onClick={onClick} disabled={disabled} className={`${baseClasses} ${variantClasses} ${className}`}>{children}</button>;
+  const variantClasses = {
+      primary: 'bg-cyan-500 text-white hover:bg-cyan-600 focus:ring-cyan-500',
+      secondary: 'bg-gray-700 text-gray-200 hover:bg-gray-600 focus:ring-gray-500',
+      danger: 'bg-red-700 text-red-100 hover:bg-red-600 focus:ring-red-500',
+  };
+  return <button type={type} onClick={onClick} disabled={disabled} className={`${baseClasses} ${variantClasses[variant]} ${className}`}>{children}</button>;
 };
+
 
 const Input: React.FC<{ label: string; id?: string; type?: string; value: string | number; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; placeholder?: string, leadingAddon?: string; disabled?: boolean; name?: string; step?: string; min?: string; }> = ({ label, id, type = "text", value, onChange, placeholder, leadingAddon, disabled = false, name, step, min }) => {
     const inputId = id || name || label.toLowerCase().replace(/\s+/g, '-');
@@ -126,6 +127,76 @@ const ToggleSwitch: React.FC<{
       </div>
   );
 };
+
+
+// ============================================================================
+// MODAL COMPONENTS
+// ============================================================================
+const TradeConfirmationModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  isConfirming: boolean;
+  tradeDetails: {
+    asset: string;
+    direction: 'LONG' | 'SHORT';
+    amountUSD: number;
+    orderType: 'Market' | 'Limit';
+    limitPrice?: string;
+    takeProfit?: { type: 'Price' | 'Percentage'; value: string };
+  } | null;
+  currentPrice: number;
+}> = ({ isOpen, onClose, onConfirm, isConfirming, tradeDetails, currentPrice }) => {
+    if (!isOpen || !tradeDetails) return null;
+
+    const { asset, direction, amountUSD, orderType, limitPrice, takeProfit } = tradeDetails;
+
+    const DetailRow: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
+        <div className="flex justify-between items-center py-2 border-b border-gray-700/50">
+            <span className="text-sm text-gray-400">{label}</span>
+            <span className="text-sm font-semibold text-white">{value}</span>
+        </div>
+    );
+    
+    const estimatedPrice = orderType === 'Limit' && limitPrice ? parseFloat(limitPrice) : currentPrice;
+
+    return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
+            <Card className="w-full max-w-md" onClick={e => e.stopPropagation()}>
+                <div className="p-4 border-b border-gray-700">
+                    <h3 className="text-lg font-semibold text-white">Confirm Trade Order</h3>
+                </div>
+                <div className="p-4 space-y-2">
+                    <DetailRow label="Asset" value={asset} />
+                    <DetailRow 
+                        label="Direction" 
+                        value={
+                            <span className={direction === 'LONG' ? 'text-green-400' : 'text-red-400'}>
+                                {direction}
+                            </span>
+                        } 
+                    />
+                    <DetailRow label="Amount" value={`$${amountUSD.toLocaleString()}`} />
+                    <DetailRow label="Order Type" value={orderType} />
+                    {orderType === 'Limit' && limitPrice && <DetailRow label="Limit Price" value={`$${limitPrice}`} />}
+                    {takeProfit?.value && <DetailRow label="Take Profit" value={`${takeProfit.type === 'Price' ? '$' : ''}${takeProfit.value}${takeProfit.type === 'Percentage' ? '%' : ''}`} />}
+                    <DetailRow label="Est. Entry Price" value={`≈ $${estimatedPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+                </div>
+                <div className="p-4 bg-gray-900/50 rounded-b-xl flex justify-end space-x-3">
+                    <Button onClick={onClose} variant="secondary" disabled={isConfirming}>Cancel</Button>
+                    <Button 
+                        onClick={onConfirm}
+                        disabled={isConfirming}
+                        className={`!py-2 ${direction === 'LONG' ? '!bg-green-600 hover:!bg-green-700 focus:!ring-green-500' : '!bg-red-600 hover:!bg-red-700 focus:!ring-red-500'}`}
+                    >
+                        {isConfirming ? <LoadingIcon /> : `Confirm ${direction}`}
+                    </Button>
+                </div>
+            </Card>
+        </div>
+    );
+};
+
 
 // ============================================================================
 // VIEW SUB-COMPONENTS
@@ -454,6 +525,9 @@ const TradeView: React.FC<TradeViewProps> = ({ tradeViewData, onExecuteTrade, is
     const [tpValue, setTpValue] = useState('');
     const [isTrading, setIsTrading] = useState(false);
     
+    type TradeDetails = Parameters<TradeViewProps['onExecuteTrade']>[0];
+    const [tradeConfirmationDetails, setTradeConfirmationDetails] = useState<TradeDetails | null>(null);
+    
     // Refs for price alert logic
     const priceHistory = useRef<{price: number, time: number}[]>([]);
     const lastAlertTimestamp = useRef<number>(0);
@@ -605,22 +679,29 @@ const TradeView: React.FC<TradeViewProps> = ({ tradeViewData, onExecuteTrade, is
     }, [marketData, market]);
 
 
-    const handleTrade = async (direction: 'LONG' | 'SHORT') => {
+    const handleInitiateTrade = (direction: 'LONG' | 'SHORT') => {
+        const details: TradeDetails = {
+            asset: market,
+            direction,
+            amountUSD: parseFloat(tradeAmount),
+            orderType: tradeMethod,
+            limitPrice: limitPrice,
+            takeProfit: {
+                type: tpType,
+                value: tpValue,
+            }
+        };
+        setTradeConfirmationDetails(details);
+    };
+
+    const handleConfirmTrade = async () => {
+        if (!tradeConfirmationDetails) return;
         setIsTrading(true);
         try {
-            await onExecuteTrade({
-                asset: market,
-                direction,
-                amountUSD: parseFloat(tradeAmount),
-                orderType: tradeMethod,
-                limitPrice: limitPrice,
-                takeProfit: {
-                    type: tpType,
-                    value: tpValue,
-                }
-            });
+            await onExecuteTrade(tradeConfirmationDetails);
         } finally {
             setIsTrading(false);
+            setTradeConfirmationDetails(null); // Close modal
         }
     };
     
@@ -707,14 +788,14 @@ const TradeView: React.FC<TradeViewProps> = ({ tradeViewData, onExecuteTrade, is
 
                         <div className="grid grid-cols-2 gap-4 pt-2">
                             <Button 
-                                onClick={() => handleTrade('LONG')}
+                                onClick={() => handleInitiateTrade('LONG')}
                                 disabled={!isConnected || isTrading}
                                 className="!py-3 !bg-green-600 hover:!bg-green-700 focus:!ring-green-500"
                             >
                                 LONG
                             </Button>
                             <Button 
-                                onClick={() => handleTrade('SHORT')}
+                                onClick={() => handleInitiateTrade('SHORT')}
                                 disabled={!isConnected || isTrading}
                                 className="!py-3 !bg-red-600 hover:!bg-red-700 focus:!ring-red-500"
                             >
@@ -729,6 +810,14 @@ const TradeView: React.FC<TradeViewProps> = ({ tradeViewData, onExecuteTrade, is
                      <p className="text-center text-gray-500 pt-8">Feature coming soon.</p>
                 </Card>
             </div>
+             <TradeConfirmationModal
+                isOpen={!!tradeConfirmationDetails}
+                onClose={() => setTradeConfirmationDetails(null)}
+                onConfirm={handleConfirmTrade}
+                isConfirming={isTrading}
+                tradeDetails={tradeConfirmationDetails}
+                currentPrice={currentPrice}
+            />
         </div>
     );
 };
@@ -750,6 +839,10 @@ interface StrategyViewProps {
     isExporting: boolean;
     onFormatCode: () => void;
     isFormatting: boolean;
+    onDeployBot: () => void;
+    isDeploying: boolean;
+    onAnalyzeCode: () => void;
+    isAnalyzing: boolean;
 }
 
 const StrategyView: React.FC<StrategyViewProps> = ({ 
@@ -763,6 +856,10 @@ const StrategyView: React.FC<StrategyViewProps> = ({
     isExporting,
     onFormatCode,
     isFormatting,
+    onDeployBot,
+    isDeploying,
+    onAnalyzeCode,
+    isAnalyzing,
  }) => {
     
     const handleToggleRecommendation = (title: string) => {
@@ -777,6 +874,18 @@ const StrategyView: React.FC<StrategyViewProps> = ({
         });
     };
     
+    const handleOriginalCodeChange = (newCode: string) => {
+        setStrategyState(prevState => ({
+            ...prevState,
+            originalCode: newCode,
+            // Reset derived state when original code changes
+            enhancedCode: '',
+            analysis: null,
+            appliedRecommendations: new Set(),
+            backtestResult: null,
+        }));
+    };
+
     const handleEnhancedCodeChange = (newCode: string) => {
       setStrategyState(prevState => ({ ...prevState, enhancedCode: newCode }));
     };
@@ -784,7 +893,7 @@ const StrategyView: React.FC<StrategyViewProps> = ({
     return (
         <div className="p-6 flex gap-6 h-full">
             <div className="w-1/3 flex flex-col gap-6">
-                {strategyState.analysis && (
+                {strategyState.analysis ? (
                     <RecommendationsPanel
                         analysis={strategyState.analysis}
                         appliedRecommendations={strategyState.appliedRecommendations}
@@ -792,6 +901,23 @@ const StrategyView: React.FC<StrategyViewProps> = ({
                         onGenerateScript={onGenerateScript}
                         isGenerating={isGenerating}
                     />
+                ) : (
+                     <Card className="h-full flex flex-col">
+                        <div className="flex justify-between items-center p-4 border-b border-gray-700">
+                           <h2 className="text-lg font-semibold text-white">AI Analysis</h2>
+                        </div>
+                        <div className="flex-grow flex flex-col items-center justify-center p-6 text-center">
+                            <LightBulbIcon className="w-12 h-12 text-gray-500 mb-4" />
+                            <h3 className="text-lg font-semibold text-white">Analyze Your Script</h3>
+                            <p className="text-gray-400 mt-2 mb-6">
+                                Paste your Python trading script into the 'Original Script' editor, then click below to get AI-powered recommendations for improvement.
+                            </p>
+                            <Button onClick={onAnalyzeCode} variant="primary" disabled={isAnalyzing || !strategyState.originalCode} className="!py-3 !px-5 text-base">
+                                {isAnalyzing ? <LoadingIcon /> : <SparklesIcon />}
+                                <span className="ml-2">{isAnalyzing ? 'Analyzing...' : 'Analyze Script'}</span>
+                            </Button>
+                        </div>
+                    </Card>
                 )}
             </div>
             <div className="w-2/3 flex flex-col gap-6">
@@ -799,7 +925,8 @@ const StrategyView: React.FC<StrategyViewProps> = ({
                     <CodeViewer
                         title="Original Script"
                         code={strategyState.originalCode}
-                        readOnly={true}
+                        onCodeChange={handleOriginalCodeChange}
+                        readOnly={false}
                     />
                 </div>
                 <div className="h-1/2 flex flex-col">
@@ -814,6 +941,8 @@ const StrategyView: React.FC<StrategyViewProps> = ({
                         isExporting={isExporting}
                         onFormatCode={onFormatCode}
                         isFormatting={isFormatting}
+                        onDeployBot={onDeployBot}
+                        isDeploying={isDeploying}
                     />
                 </div>
             </div>
@@ -1087,6 +1216,150 @@ const WalletView: React.FC<WalletViewProps> = ({ liveAssets, liveTotalEquity, is
 
 
 // ============================================================================
+// DEPLOYMENT VIEW COMPONENTS (NEW)
+// ============================================================================
+
+const LogViewerModal: React.FC<{ bot: DeployedBot | null; onClose: () => void; }> = ({ bot, onClose }) => {
+    const logContainerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (logContainerRef.current) {
+            logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+        }
+    }, [bot?.logs]);
+
+    if (!bot) return null;
+
+    const levelColors: { [key in LogEntry['level']]: string } = {
+        INFO: 'text-gray-400',
+        WARN: 'text-yellow-400',
+        ERROR: 'text-red-400',
+        TRADE: 'text-cyan-400',
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
+            <Card className="w-full max-w-2xl h-3/4 flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+                    <h3 className="text-lg font-semibold text-white">Live Logs: {bot.symbol}</h3>
+                    <Button onClick={onClose} variant="secondary" className="!p-2"><CloseIcon /></Button>
+                </div>
+                <div ref={logContainerRef} className="flex-grow p-4 bg-gray-900/70 overflow-y-auto font-mono text-sm space-y-2">
+                    {bot.logs.map((log, index) => (
+                        <div key={index} className="flex">
+                            <span className="text-gray-500 mr-3">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                            <span className={`${levelColors[log.level]} mr-3`}>[{log.level}]</span>
+                            <span className="text-gray-200 flex-1 whitespace-pre-wrap break-words">{log.message}</span>
+                        </div>
+                    ))}
+                </div>
+            </Card>
+        </div>
+    );
+};
+
+const Uptime: React.FC<{ startTime: string }> = ({ startTime }) => {
+    const [uptime, setUptime] = useState('');
+    useEffect(() => {
+        const interval = setInterval(() => {
+            const now = new Date();
+            const start = new Date(startTime);
+            const diff = now.getTime() - start.getTime();
+            const seconds = Math.floor((diff / 1000) % 60).toString().padStart(2, '0');
+            const minutes = Math.floor((diff / (1000 * 60)) % 60).toString().padStart(2, '0');
+            const hours = Math.floor(diff / (1000 * 60 * 60)).toString().padStart(2, '0');
+            setUptime(`${hours}:${minutes}:${seconds}`);
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [startTime]);
+    return <>{uptime}</>;
+};
+
+const BotCard: React.FC<{
+    bot: DeployedBot;
+    onToggleStatus: (botId: string) => void;
+    onDelete: (botId: string) => void;
+    onViewLogs: (bot: DeployedBot) => void;
+}> = ({ bot, onToggleStatus, onDelete, onViewLogs }) => {
+    const statusConfig = {
+        running: { text: 'Running', color: 'bg-green-500', icon: <StopIcon /> },
+        stopped: { text: 'Stopped', color: 'bg-yellow-500', icon: <PlayIcon /> },
+        error: { text: 'Error', color: 'bg-red-500', icon: <PlayIcon /> },
+    };
+    const currentStatus = statusConfig[bot.status];
+
+    return (
+        <Card className="p-4 flex flex-col space-y-4">
+            <div className="flex justify-between items-start">
+                <h3 className="text-lg font-bold text-white">{bot.symbol}</h3>
+                <div className="flex items-center space-x-2 text-sm">
+                    <div className={`w-2.5 h-2.5 rounded-full ${currentStatus.color}`}></div>
+                    <span className="font-semibold">{currentStatus.text}</span>
+                </div>
+            </div>
+            <div>
+                <p className="text-sm text-gray-400">Session PnL</p>
+                <p className={`text-2xl font-bold ${bot.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {bot.pnl >= 0 ? '+' : '-'}${Math.abs(bot.pnl).toFixed(2)}
+                </p>
+            </div>
+            <div>
+                <p className="text-sm text-gray-400">Uptime</p>
+                <p className="font-mono text-white"><Uptime startTime={bot.startTime} /></p>
+            </div>
+            <div className="flex-grow"></div>
+            <div className="pt-4 border-t border-gray-700/50 flex space-x-2">
+                <Button onClick={() => onToggleStatus(bot.id)} className="flex-1 flex items-center justify-center">
+                    {currentStatus.icon}
+                    <span className="ml-2">{bot.status === 'running' ? 'Stop' : 'Start'}</span>
+                </Button>
+                <Button onClick={() => onViewLogs(bot)} variant="secondary">Logs</Button>
+                <Button onClick={() => onDelete(bot.id)} variant="danger"><CloseIcon /></Button>
+            </div>
+        </Card>
+    );
+};
+
+
+const DeploymentsView: React.FC<{
+    bots: DeployedBot[];
+    onToggleBotStatus: (botId: string) => void;
+    onDeleteBot: (botId: string) => void;
+    onViewBotLogs: (bot: DeployedBot) => void;
+    onNavigate: (view: string) => void;
+}> = ({ bots, onToggleBotStatus, onDeleteBot, onViewBotLogs, onNavigate }) => {
+    return (
+        <div className="p-6 h-full">
+            {bots.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    {bots.map(bot => (
+                        <BotCard
+                            key={bot.id}
+                            bot={bot}
+                            onToggleStatus={onToggleBotStatus}
+                            onDelete={onDeleteBot}
+                            onViewLogs={onViewBotLogs}
+                        />
+                    ))}
+                </div>
+            ) : (
+                <div className="flex flex-col items-center justify-center h-full text-center">
+                    <ServerIcon className="h-16 w-16 text-gray-600" />
+                    <h3 className="mt-4 text-xl font-semibold text-white">No Bots Deployed</h3>
+                    <p className="mt-2 text-gray-400">
+                        Go to the 'Strategy' view to generate and deploy your first trading bot.
+                    </p>
+                    <Button onClick={() => onNavigate('strategy')} variant="primary" className="mt-6">
+                        Go to Strategy
+                    </Button>
+                </div>
+            )}
+        </div>
+    );
+};
+
+
+// ============================================================================
 // MAIN APP COMPONENT
 // ============================================================================
 
@@ -1141,14 +1414,20 @@ const MainLayout: React.FC = () => {
       appliedRecommendations: new Set<string>(),
       backtestResult: null as BacktestResult | null,
   });
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isBacktestRunning, setIsBacktestRunning] = useState(false);
   const [backtestError, setBacktestError] = useState<string|null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isFormatting, setIsFormatting] = useState(false);
+  const [isDeploying, setIsDeploying] = useState(false);
   
   // State for AI Suggestions
   const [aiSuggestion, setAiSuggestion] = useState({ suggestion: '', isLoading: false, error: null as string | null });
+  
+  // State for Bot Deployments
+  const [deployedBots, setDeployedBots] = useState<DeployedBot[]>([]);
+  const [viewingLogsForBot, setViewingLogsForBot] = useState<DeployedBot | null>(null);
 
   // WebSocket manager
   const wsManager = useRef<ReturnType<typeof createWebSocketManager> | null>(null);
@@ -1359,6 +1638,7 @@ const MainLayout: React.FC = () => {
   };
 
   const handleAnalyzeCode = async () => {
+    setIsAnalyzing(true);
     try {
         const result = await analyzeCode(strategyState.originalCode);
         setStrategyState(prevState => ({
@@ -1369,12 +1649,16 @@ const MainLayout: React.FC = () => {
         }));
     } catch (error: any) {
         addNotification(`Code analysis failed: ${error.message}`, 'error');
+    } finally {
+        setIsAnalyzing(false);
     }
   };
 
   // Run analysis on initial load
   useEffect(() => {
-    handleAnalyzeCode();
+    if (strategyState.originalCode && !strategyState.analysis) {
+        handleAnalyzeCode();
+    }
   }, []);
 
   const handleRunBacktest = async () => {
@@ -1457,6 +1741,75 @@ const MainLayout: React.FC = () => {
            setAiSuggestion({ suggestion: '', isLoading: false, error: errorMessage });
       }
   };
+
+    const handleDeployBot = async () => {
+        if (!strategyState.enhancedCode) {
+            addNotification("Please generate an enhanced script first.", "error");
+            return;
+        }
+        setIsDeploying(true);
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate network delay
+        const newBot: DeployedBot = {
+            id: `bot-${Date.now()}`,
+            symbol: market,
+            status: 'stopped',
+            startTime: new Date().toISOString(),
+            pnl: 0,
+            logs: [{ timestamp: new Date().toISOString(), level: 'INFO', message: 'Bot deployed successfully.' }],
+        };
+        setDeployedBots(prev => [...prev, newBot]);
+        setIsDeploying(false);
+        addNotification(`Bot for ${market} deployed.`, 'success');
+        setCurrentView('deployments');
+    };
+
+    const handleToggleBotStatus = (botId: string) => {
+        const bot = deployedBots.find(b => b.id === botId);
+        if (!bot) return;
+
+        if (bot.status === 'running') {
+            // Stop the bot
+            if (bot.intervalId) clearInterval(bot.intervalId);
+            setDeployedBots(prev => prev.map(b => b.id === botId ? { ...b, status: 'stopped', intervalId: undefined, logs: [...b.logs, { timestamp: new Date().toISOString(), level: 'INFO', message: 'Bot stopped manually.'}] } : b));
+        } else {
+            // Start the bot
+            const intervalId = window.setInterval(() => {
+                setDeployedBots(prevBots => prevBots.map(b => {
+                    if (b.id === botId && b.status === 'running') {
+                        const pnlChange = (Math.random() - 0.48) * (liveTickerPrice ? liveTickerPrice * 0.0001 : 1);
+                        const newPnl = b.pnl + pnlChange;
+                        const logMessages = [
+                            'Checking for signals...',
+                            'Market conditions neutral, holding position.',
+                            `Analyzing ${market} on 15m timeframe.`,
+                            'Volatility within acceptable parameters.',
+                        ];
+                        const shouldTrade = Math.random() < 0.05;
+                        let newLog: LogEntry;
+                        if (shouldTrade) {
+                             const direction = Math.random() > 0.5 ? 'LONG' : 'SHORT';
+                             newLog = { timestamp: new Date().toISOString(), level: 'TRADE', message: `Signal detected. Entering new ${direction} position.`};
+                        } else {
+                             newLog = { timestamp: new Date().toISOString(), level: 'INFO', message: logMessages[Math.floor(Math.random() * logMessages.length)] };
+                        }
+                        const newLogs = [...b.logs, newLog].slice(-100);
+                        return { ...b, pnl: newPnl, logs: newLogs };
+                    }
+                    return b;
+                }));
+            }, 3000);
+
+            setDeployedBots(prev => prev.map(b => b.id === botId ? { ...b, status: 'running', intervalId, logs: [...b.logs, { timestamp: new Date().toISOString(), level: 'INFO', message: `Bot started on ${b.symbol}.`}] } : b));
+        }
+    };
+    
+    const handleDeleteBot = (botId: string) => {
+        const bot = deployedBots.find(b => b.id === botId);
+        if (bot?.intervalId) clearInterval(bot.intervalId);
+        setDeployedBots(prev => prev.filter(b => b.id !== botId));
+        addNotification(`Bot for ${bot?.symbol} deleted.`, 'info');
+    };
+
   
   const renderView = () => {
     switch (currentView) {
@@ -1504,12 +1857,24 @@ const MainLayout: React.FC = () => {
                     isExporting={isExporting}
                     onFormatCode={handleFormatCode}
                     isFormatting={isFormatting}
+                    onDeployBot={handleDeployBot}
+                    isDeploying={isDeploying}
+                    onAnalyzeCode={handleAnalyzeCode}
+                    isAnalyzing={isAnalyzing}
                 />;
       case 'backtest':
         return <BacktestView 
                     backtestResult={strategyState.backtestResult} 
                     isBacktestRunning={isBacktestRunning}
                     backtestError={backtestError}
+                />;
+      case 'deployments':
+        return <DeploymentsView 
+                    bots={deployedBots}
+                    onToggleBotStatus={handleToggleBotStatus}
+                    onDeleteBot={handleDeleteBot}
+                    onViewBotLogs={setViewingLogsForBot}
+                    onNavigate={setCurrentView}
                 />;
       case 'settings':
         return <SettingsView onConnect={handleConnect} onDisconnect={handleDisconnect} />;
@@ -1527,6 +1892,8 @@ const MainLayout: React.FC = () => {
                 />;
     }
   };
+  
+  const activeBotCount = deployedBots.filter(b => b.status === 'running').length;
 
   return (
     <div className="flex h-screen bg-gray-900 text-gray-100">
@@ -1540,7 +1907,7 @@ const MainLayout: React.FC = () => {
         <DashboardHeader 
           currentView={currentView}
           isConnected={isConnected}
-          isBotSimulating={false} // Placeholder for future live bot state
+          activeBotCount={activeBotCount}
         />
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-900">
           {renderView()}
@@ -1549,6 +1916,7 @@ const MainLayout: React.FC = () => {
       {notifications.map(notification => (
         <NotificationPopup key={notification.id} notification={notification} onDismiss={dismissNotification} />
       ))}
+       <LogViewerModal bot={viewingLogsForBot} onClose={() => setViewingLogsForBot(null)} />
     </div>
   );
 };
@@ -1565,6 +1933,7 @@ const Sidebar: React.FC<{
     { name: 'wallet', icon: <WalletIcon />, label: 'Wallet' },
     { name: 'strategy', icon: <SparklesIcon />, label: 'Strategy' },
     { name: 'backtest', icon: <ChartBarIcon />, label: 'Backtest' },
+    { name: 'deployments', icon: <ServerIcon />, label: 'Deployments' },
     { name: 'settings', icon: <SettingsIcon />, label: 'Settings' },
   ];
 

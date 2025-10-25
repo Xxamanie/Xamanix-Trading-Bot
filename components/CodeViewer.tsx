@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Editor from 'react-simple-code-editor';
-import { CopyIcon, CheckIcon, LoadingIcon, PlayIcon, RocketIcon, WandSparklesIcon } from './icons';
+// FIX: Add `ExternalLinkIcon` to the import from `./icons` to resolve the "Cannot find name" error.
+import { CopyIcon, CheckIcon, LoadingIcon, PlayIcon, RocketIcon, WandSparklesIcon, ExternalLinkIcon } from './icons';
 
 // Prism is loaded globally from index.html
 declare const Prism: any;
@@ -17,6 +18,8 @@ interface CodeViewerProps {
   isExporting?: boolean;
   onFormatCode?: () => void;
   isFormatting?: boolean;
+  onDeployBot?: () => void;
+  isDeploying?: boolean;
 }
 
 export default function CodeViewer({ 
@@ -31,6 +34,8 @@ export default function CodeViewer({
   readOnly = false,
   onFormatCode,
   isFormatting = false,
+  onDeployBot,
+  isDeploying = false,
 }: CodeViewerProps): React.ReactElement {
   const [copied, setCopied] = useState(false);
 
@@ -71,6 +76,16 @@ export default function CodeViewer({
               <span className="ml-2">{isBacktestRunning ? 'Running...' : 'Run Backtest'}</span>
             </button>
           )}
+           {onDeployBot && (
+             <button
+                onClick={onDeployBot}
+                disabled={isDeploying || !code}
+                className="bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-600/50 disabled:text-gray-400 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-md text-sm font-medium flex items-center transition-colors"
+             >
+                {isDeploying ? <LoadingIcon /> : <RocketIcon />}
+                <span className="ml-2">{isDeploying ? 'Deploying...' : 'Deploy Bot'}</span>
+             </button>
+           )}
            {onExportScript && (
              <div className="relative group">
                 <button
@@ -78,7 +93,7 @@ export default function CodeViewer({
                   disabled={isExporting || !code}
                   className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center transition-colors bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600/50 disabled:text-gray-400 disabled:cursor-not-allowed text-white`}
                 >
-                    {isExporting ? <LoadingIcon /> : <RocketIcon />}
+                    {isExporting ? <LoadingIcon /> : <ExternalLinkIcon className="h-5 w-5"/>}
                     <span className="ml-2">{isExporting ? 'Exporting...' : 'Export Script'}</span>
                 </button>
                 {!code && (
