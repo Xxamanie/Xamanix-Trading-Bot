@@ -724,8 +724,8 @@ class AdvancedTradingBot:
         """Run complete backtest with all features"""
         print("🚀 Starting Advanced Trading Bot Backtest")
         print(f"📈 Symbol: {self.cfg['symbol']}")
-        # FIX: Escaped template literal syntax in Python f-string to prevent JS parsing errors.
-        print(f"💰 Capital: \${self.cfg['capital']:,.2f}")
+        # FIX: Corrected Python f-string syntax.
+        print(f"💰 Capital: {self.cfg['capital']:,.2f}")
         print("⏳ This may take a few minutes...\\n")
         
         # Fetch multi-timeframe data
@@ -860,8 +860,8 @@ class AdvancedTradingBot:
         max_position_value = self.account_balance * self.cfg['max_portfolio_risk']
         position_size = min(position_size, max_position_value / price)
         
-        # FIX: Escaped template literal syntax in Python f-string to prevent JS parsing errors.
-        print(f"📈 ENTER \${signal} at \${price:.2f} | Size: \${position_size:.2f} | SL: \${stop_loss_price:.2f} | TP: \${take_profit_price:.2f} | Regime: \${regime['regime']}")
+        # FIX: Corrected Python f-string syntax.
+        print(f"📈 ENTER {signal} at {price:.2f} | Size: {position_size:.2f} | SL: {stop_loss_price:.2f} | TP: {take_profit_price:.2f} | Regime: {regime['regime']}")
         
         return {
             "type": signal,
@@ -924,8 +924,8 @@ class AdvancedTradingBot:
             
             trade_outcome = -1 if pnl >= 0 else 1  # -1 for win/breakeven, 1 for loss
             
-            # FIX: Escaped template literal syntax in Python f-string to prevent JS parsing errors.
-            print(f"📤 CLOSE \${position['type']} at \${current_price:.2f} (\${exit_reason}) | P&L: \${pnl:.2f}")
+            # FIX: Corrected Python f-string syntax.
+            print(f"📤 CLOSE {position['type']} at {current_price:.2f} ({exit_reason}) | P&L: {pnl:.2f}")
             self.correlation_tracker.remove_position(self.cfg['symbol'])
             
             # Return None to indicate position is closed, and the trade outcome

@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { PortfolioHistory, Asset, Position, TradeViewData, AnalysisResult, BacktestResult, ClosedTrade, UserSubmission, Notification, Order, DeployedBot, LogEntry } from './types';
 // FIX: Import `DEFAULT_SCRIPT` to resolve "Cannot find name 'DEFAULT_SCRIPT'" error.
@@ -584,23 +585,6 @@ const TradeView: React.FC<TradeViewProps> = ({ tradeViewData, onExecuteTrade, is
         if (!ctx) return;
         if (chartInstance.current) chartInstance.current.destroy();
 
-        const movingAveragePeriod = 20;
-        const calculateEMA = (data: number[], period: number): (number | null)[] => {
-            if (data.length < period) return Array(data.length).fill(null);
-            const multiplier = 2 / (period + 1);
-            const ema: (number | null)[] = Array(data.length).fill(null);
-            let sum = 0;
-            for (let i = 0; i < period; i++) sum += data[i];
-            ema[period - 1] = sum / period;
-            for (let i = period; i < data.length; i++) {
-                ema[i] = (data[i] - (ema[i - 1] as number)) * multiplier + (ema[i - 1] as number);
-            }
-            return ema;
-        };
-        
-        const closePrices = marketData.map(d => d.close);
-        const emaData = calculateEMA(closePrices, movingAveragePeriod);
-
         chartInstance.current = new Chart(ctx, {
             type: 'candlestick',
             data: {
@@ -620,18 +604,6 @@ const TradeView: React.FC<TradeViewProps> = ({ tradeViewData, onExecuteTrade, is
                             unchanged: '#9ca3af', // Tailwind gray-400
                         },
                     },
-                    {
-                        type: 'line',
-                        label: `EMA(${movingAveragePeriod})`,
-                        data: emaData.map((value, index) => value === null ? null : {
-                            x: new Date(marketData[index].time).valueOf(),
-                            y: value
-                        }).filter(p => p !== null),
-                        borderColor: '#facc15', // Tailwind yellow-400
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        tension: 0.1,
-                    }
                 ]
             },
             options: {
